@@ -1,82 +1,16 @@
 <!--
   ============================================================================
-  FATTORIA TASKS — v2  (Single Page PWA, file unico)
+  FATTORIA TASKS — v3 (Single Page PWA, file unico)
   ============================================================================
-  5 sezioni: Oggi · Lavori · Registro · Spesa · Storico
-  + routine giornaliere che ogni giorno tornano "da fare"
-  + foto scattate dal telefono (Supabase Storage)
+  Sezioni:  Oggi · Calendario · Lavori · Registro · Spesa   (+ Storico dal calendario)
+  Aggiunta: bottone verde in basso a destra, cambia in base alla sezione.
+  Dettagli: un tap sulla scheda (o sul nome della routine) apre il dettaglio
+            modificabile. Sulle routine il cerchietto a sinistra spunta, il
+            resto della riga apre i dettagli.
 
-  ATTENZIONE: questa versione usa colonne NUOVE nel database.
-  Devi eseguire una volta lo script "schema-v2.sql" nell'SQL Editor di
-  Supabase (lo trovi nella stessa cartella di questo file, oppure ricopiato
-  qui sotto tra "-- INIZIO" e "-- FINE").
-
+  PRIMA DI USARLA: esegui una volta "schema-v2.sql" nell'SQL Editor di Supabase.
+  Lo schema del database è lo stesso della v2, non serve rifarlo se l'hai già fatto.
   ============================================================================
--- INIZIO ---------------------------------------------------------------------
-
-create extension if not exists "pgcrypto";
-
--- 1) TABELLA (ricreata da zero: la vecchia versione non serve più)
-drop table if exists public.tasks cascade;
-
-create table public.tasks (
-  id               uuid        primary key default gen_random_uuid(),
-  kind             text        not null default 'Lavoro',   -- Routine | Lavoro | Nota | Spesa
-  title            text        not null,
-  category         text,                                    -- Animali | Recinti | Macchine | Altro
-  priority         text        not null default 'Media',    -- Alta | Media | Bassa
-  assigned_to      text        not null default 'Io',       -- Io | Anna | Tutti
-  due_date         date,
-  estimated_time   text,                                    -- 30m | 1h | 2h+
-  status           text        not null default 'Da fare',  -- Da fare | In corso | Completato
-  notes            text,
-  photo_url        text,
-  is_daily_routine boolean     not null default false,
-  last_done_date   date,                                    -- ultimo giorno in cui la routine è stata spuntata
-  completed_at     timestamptz,                             -- data/ora di completamento (per lo Storico)
-  created_at       timestamptz not null default now(),
-  sort_order       int         not null default 0
-);
-
-create index tasks_kind_idx      on public.tasks (kind);
-create index tasks_due_date_idx  on public.tasks (due_date);
-create index tasks_completed_idx on public.tasks (completed_at desc);
-
--- 2) SICUREZZA (accesso aperto: uso familiare senza login)
-alter table public.tasks enable row level security;
-create policy "tasks_all_select" on public.tasks for select using (true);
-create policy "tasks_all_insert" on public.tasks for insert with check (true);
-create policy "tasks_all_update" on public.tasks for update using (true) with check (true);
-create policy "tasks_all_delete" on public.tasks for delete using (true);
-
--- 3) REALTIME
-alter table public.tasks replica identity full;
-do $$ begin
-  alter publication supabase_realtime add table public.tasks;
-exception when duplicate_object then null; end $$;
-
--- 4) STORAGE per le foto (bucket pubblico "farm-photos")
-insert into storage.buckets (id, name, public)
-values ('farm-photos', 'farm-photos', true)
-on conflict (id) do update set public = true;
-
-drop policy if exists "farm_photos_read"   on storage.objects;
-drop policy if exists "farm_photos_write"  on storage.objects;
-drop policy if exists "farm_photos_delete" on storage.objects;
-
-create policy "farm_photos_read"   on storage.objects for select using (bucket_id = 'farm-photos');
-create policy "farm_photos_write"  on storage.objects for insert with check (bucket_id = 'farm-photos');
-create policy "farm_photos_delete" on storage.objects for delete using (bucket_id = 'farm-photos');
-
--- 5) ROUTINE GIORNALIERE di partenza (modificabili e cancellabili dall'app)
-insert into public.tasks (kind, title, is_daily_routine, assigned_to, estimated_time, category, sort_order) values
-  ('Routine', 'Cibo animali',      true, 'Tutti', '30m', 'Animali', 1),
-  ('Routine', 'Acqua animali',     true, 'Tutti', '30m', 'Animali', 2),
-  ('Routine', 'Raccolta uova',     true, 'Anna',  '30m', 'Animali', 3),
-  ('Routine', 'Controllo recinti', true, 'Io',    '30m', 'Recinti', 4),
-  ('Routine', 'Mungitura',         true, 'Tutti', '1h',  'Animali', 5);
-
--- FINE -----------------------------------------------------------------------
 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5">
@@ -91,19 +25,15 @@ insert into public.tasks (kind, title, is_daily_routine, assigned_to, estimated_
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 
 <style>
-  /* ---------------------------------------------------------------
-     Palette ripresa dal mockup (verde salvia + crema/legno),
-     con contrasti alzati per la leggibilità sotto il sole.
-     --------------------------------------------------------------- */
   :root {
-    --sage:      #8FA583;   /* header */
+    --sage:      #8FA583;
     --sage-dark: #6E8663;
-    --cream:     #EFE7D6;   /* sfondo pagina */
-    --card:      #FBF7EC;   /* schede */
+    --cream:     #E6D8BC;
+    --card:      #FBF7EC;
     --line:      #DFD4BC;
-    --ink:       #1E2418;   /* testo principale (quasi nero) */
+    --ink:       #1E2418;
     --ink-2:     #4A5340;
-    --brand:     #2F6B33;   /* verde azione */
+    --brand:     #2F6B33;
     --brand-2:   #245227;
     --chip:      #E2EADB;
     --chip-ink:  #24401F;
@@ -112,52 +42,49 @@ insert into public.tasks (kind, title, is_daily_routine, assigned_to, estimated_
   * { -webkit-tap-highlight-color: transparent; }
   html { -webkit-text-size-adjust: 100%; }
   body {
-    margin: 0; background: var(--cream); color: var(--ink);
+    margin: 0; color: var(--ink);
     font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     overscroll-behavior-y: contain;
+    /* Texture legno con soli gradienti CSS: nessun file da scaricare. */
+    background-color: var(--cream);
+    background-image:
+      repeating-linear-gradient(90deg, rgba(126,92,50,.10) 0 1px, rgba(0,0,0,0) 1px 5px),
+      repeating-linear-gradient(90deg, rgba(126,92,50,.07) 0 2px, rgba(0,0,0,0) 2px 11px),
+      repeating-linear-gradient(90deg, rgba(104,72,36,.13) 0 2px, rgba(0,0,0,0) 2px 29px),
+      repeating-linear-gradient(90deg, rgba(255,246,226,.30) 0 6px, rgba(0,0,0,0) 6px 67px),
+      repeating-linear-gradient(0deg,  rgba(104,72,36,.16) 0 2px, rgba(0,0,0,0) 2px 118px),
+      linear-gradient(180deg, rgba(255,250,238,.35), rgba(255,250,238,0) 34%);
+    background-attachment: fixed;
   }
   input, select, textarea, button { font-size: 16px; font-family: inherit; color: var(--ink); }
-
   .no-sb { scrollbar-width: none; -ms-overflow-style: none; }
   .no-sb::-webkit-scrollbar { display: none; }
 
-  /* ---------------- schede ---------------- */
   .card {
-    background: var(--card); border: 1.5px solid var(--line);
-    border-radius: 1rem; padding: .85rem;
-    box-shadow: 0 1px 2px rgba(60,50,30,.07);
+    background: var(--card); border: 1px solid rgba(180,164,132,.6);
+    border-radius: 1.25rem; padding: 1.05rem;
+    box-shadow: 0 3px 10px rgba(74,58,32,.09), 0 1px 2px rgba(74,58,32,.05);
   }
   .card-hot  { background: #FFF3EF; border-color: #E9A08F; }
   .card-done { background: #F2F1EA; }
+  .card-tap:active { transform: scale(.99); }
 
-  /* ---------------- titoli sezione ---------------- */
-  .h-sec {
-    display: flex; align-items: center; gap: .5rem;
-    font-size: 1.0625rem; font-weight: 900; letter-spacing: -.01em; margin-bottom: .6rem;
-  }
-  .h-count {
-    font-size: .75rem; font-weight: 900; background: var(--chip); color: var(--chip-ink);
-    padding: .2rem .45rem; border-radius: .4rem; border: 1px solid var(--line);
-  }
+  .h-sec { display: flex; align-items: center; gap: .5rem; font-size: 1.0625rem;
+           font-weight: 900; letter-spacing: -.01em; margin: 0 .25rem .75rem; }
+  .h-count { font-size: .75rem; font-weight: 900; background: var(--chip); color: var(--chip-ink);
+             padding: .2rem .45rem; border-radius: .4rem; border: 1px solid var(--line); }
 
-  /* ---------------- badge ---------------- */
-  .badge {
-    display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap;
-    font-size: .75rem; font-weight: 800; line-height: 1;
-    padding: .35rem .5rem; border-radius: .5rem;
-    background: var(--chip); color: var(--chip-ink); border: 1px solid var(--line);
-  }
+  .badge { display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap;
+           font-size: .75rem; font-weight: 800; line-height: 1; padding: .35rem .5rem;
+           border-radius: .5rem; background: var(--chip); color: var(--chip-ink); border: 1px solid var(--line); }
   .badge-hot   { background: var(--danger); color: #fff; border-color: var(--danger); }
   .badge-today { background: #8A4B10; color: #fff; border-color: #8A4B10; }
   .badge-pri   { background: #C2410C; color: #fff; border-color: #C2410C; }
   .badge-who   { background: #E7EDF7; color: #1D3A6B; border-color: #C8D6EA; }
 
-  /* ---------------- bottoni ---------------- */
-  .btn {
-    display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
-    min-height: 48px; padding: 0 1rem; border-radius: .8rem;
-    font-weight: 900; font-size: .9375rem; border: 2px solid transparent;
-  }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+         min-height: 48px; padding: 0 1rem; border-radius: .8rem; font-weight: 900;
+         font-size: .9375rem; border: 2px solid transparent; }
   .btn:active { filter: brightness(.93); }
   .btn-primary { background: var(--brand); color: #fff; }
   .btn-ghost   { background: var(--card); color: var(--ink); border-color: var(--line); }
@@ -165,61 +92,75 @@ insert into public.tasks (kind, title, is_daily_routine, assigned_to, estimated_
   .btn-sm      { min-height: 42px; padding: 0 .8rem; font-size: .875rem; border-radius: .7rem; }
   .btn-wide    { width: 100%; min-height: 54px; font-size: 1.0625rem; }
 
-  /* ---------------- chip di scelta ---------------- */
-  .chip {
-    display: inline-flex; align-items: center; justify-content: center; gap: .3rem;
-    min-height: 44px; padding: 0 .85rem; border-radius: .8rem;
-    background: var(--card); color: var(--ink); border: 2px solid var(--line);
-    font-weight: 800; font-size: .875rem; white-space: nowrap;
-  }
+  .chip { display: inline-flex; align-items: center; justify-content: center; gap: .3rem;
+          min-height: 44px; padding: 0 .85rem; border-radius: .8rem; background: var(--card);
+          color: var(--ink); border: 2px solid var(--line); font-weight: 800;
+          font-size: .875rem; white-space: nowrap; }
   .chip[aria-pressed="true"] { background: var(--brand); color: #fff; border-color: var(--brand); }
 
-  /* ---------------- campi ---------------- */
-  .field {
-    width: 100%; min-height: 52px; padding: .75rem .9rem;
-    background: #fff; border: 2px solid var(--line); border-radius: .8rem;
-    font-weight: 700;
-  }
+  .field { width: 100%; min-height: 52px; padding: .75rem .9rem; background: #fff;
+           border: 2px solid var(--line); border-radius: .8rem; font-weight: 700; }
   .field::placeholder { color: #94907F; font-weight: 600; }
   .field:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(47,107,51,.22); }
   .lbl { font-size: .75rem; font-weight: 900; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); }
 
-  /* ---------------- checklist routine ---------------- */
-  .rt {
-    display: flex; align-items: center; gap: .75rem; width: 100%;
-    background: var(--card); border: 1.5px solid var(--line);
-    border-radius: 1rem; padding: .8rem .85rem; text-align: left;
-  }
-  .rt:active { transform: scale(.99); }
-  .rt-box {
-    flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%;
-    border: 3px solid #B9AE93; display: grid; place-items: center;
-    font-size: 1.1rem; font-weight: 900; color: transparent;
-  }
+  /* ---- righe spuntabili (routine e spesa) ---- */
+  .rt { display: flex; align-items: center; gap: .85rem; width: 100%;
+        background: var(--card); border: 1px solid rgba(180,164,132,.6);
+        border-radius: 1.25rem; padding: 1rem; text-align: left;
+        box-shadow: 0 3px 10px rgba(74,58,32,.09), 0 1px 2px rgba(74,58,32,.05); }
+  .rt-box { flex: 0 0 auto; width: 42px; height: 42px; border-radius: 50%;
+            border: 3px solid #B9AE93; display: grid; place-items: center;
+            font-size: 1.25rem; font-weight: 900; color: transparent; background: #fff; }
   .rt-on           { background: #EEF3EA; border-color: #BFCDB6; }
   .rt-on .rt-box   { background: var(--brand); border-color: var(--brand); color: #fff; }
   .rt-on .rt-title { text-decoration: line-through; color: #6B7360; }
   .rt-title        { display: block; font-weight: 800; font-size: 1rem; line-height: 1.2; }
+  .rt-open         { flex: 1 1 auto; text-align: left; min-width: 0; }
 
-  /* ---------------- barra di navigazione in basso ---------------- */
-  #nav {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-    display: grid; grid-template-columns: repeat(5, 1fr);
-    background: var(--card); border-top: 1.5px solid var(--line);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-  .tab {
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-    padding: .5rem 0 .45rem; font-size: .625rem; font-weight: 800; color: var(--ink-2);
-    border-top: 3px solid transparent;
-  }
+  /* ---- calendario ---- */
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: .3rem; }
+  .cal-dow  { text-align: center; font-size: .6875rem; font-weight: 900; color: var(--ink-2); padding-bottom: .2rem; }
+  .cal-cell { position: relative; aspect-ratio: 1 / 1; min-height: 44px; border-radius: .7rem;
+              background: #FDFBF4; border: 1.5px solid rgba(180,164,132,.5);
+              display: flex; flex-direction: column; align-items: center; justify-content: center;
+              font-weight: 800; font-size: .9375rem; gap: 2px; }
+  .cal-cell.out   { background: transparent; border-color: transparent; color: #A79E86; }
+  .cal-cell.today { border-color: var(--brand); border-width: 2.5px; }
+  .cal-cell.sel   { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .cal-dots { display: flex; gap: 2px; height: 6px; align-items: center; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .dot-late { background: var(--danger); }
+  .dot-open { background: var(--brand); }
+  .dot-run  { background: #1D4ED8; }
+  .dot-done { background: #9AA394; }
+  .cal-cell.sel .dot-late { background: #FFD9D4; }
+  .cal-cell.sel .dot-open { background: #DCF0D6; }
+  .cal-cell.sel .dot-run  { background: #CBDBFF; }
+  .cal-cell.sel .dot-done { background: #E4E7E0; }
+
+  /* ---- barra in basso + bottone aggiungi ---- */
+  #nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+         display: grid; grid-template-columns: repeat(5, 1fr);
+         background: var(--card); border-top: 1.5px solid var(--line);
+         padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+         padding: .5rem 0 .45rem; font-size: .625rem; font-weight: 800; color: var(--ink-2);
+         border-top: 3px solid transparent; }
   .tab .ic { font-size: 1.35rem; line-height: 1; }
   .tab[aria-current="page"] { color: var(--brand-2); background: #E7EEE3; border-top-color: var(--brand); }
 
-  /* ---------------- foto ---------------- */
-  .thumb { width: 100%; max-height: 210px; object-fit: cover; border-radius: .8rem; border: 1.5px solid var(--line); display: block; }
-  #lightbox img { max-width: 100%; max-height: 88vh; object-fit: contain; border-radius: .5rem; }
+  #fab { position: fixed; right: 1rem; z-index: 45;
+         bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+         height: 62px; padding: 0 1.4rem 0 1.15rem; border-radius: 999px;
+         background: var(--brand); color: #fff; font-weight: 900; font-size: 1.0625rem;
+         display: inline-flex; align-items: center; gap: .5rem;
+         box-shadow: 0 6px 18px rgba(20,40,20,.35); border: 3px solid #FBF7EC; }
+  #fab:active { filter: brightness(.92); }
 
+  .thumb { width: 100%; max-height: 210px; object-fit: cover; border-radius: .8rem;
+           border: 1.5px solid var(--line); display: block; }
+  #lightbox img { max-width: 100%; max-height: 88vh; object-fit: contain; border-radius: .5rem; }
   .sheet-panel { animation: up .22s cubic-bezier(.2,.8,.2,1); }
   @keyframes up { from { transform: translateY(16px); opacity: .5 } to { transform: none; opacity: 1 } }
   [hidden] { display: none !important; }
@@ -227,140 +168,41 @@ insert into public.tasks (kind, title, is_daily_routine, assigned_to, estimated_
 
 <body>
 
-<!-- ============================ HEADER ============================ -->
 <header class="sticky top-0 z-30" style="background:var(--sage);border-bottom:1.5px solid var(--sage-dark)">
   <div class="flex items-center gap-2 px-3 py-2.5">
-    <h1 class="text-lg font-black flex items-center gap-1.5" style="color:#14200F">
-      <span>🚜</span><span>Fattoria Tasks</span>
-    </h1>
+    <h1 class="text-lg font-black flex items-center gap-1.5" style="color:#14200F"><span>🚜</span><span>Fattoria Tasks</span></h1>
     <span id="conn" class="badge" style="background:#ffffffcc">…</span>
     <div class="ml-auto flex items-center gap-1.5">
-      <button id="btn-settings" class="w-10 h-10 rounded-xl grid place-items-center text-xl"
-              style="background:#ffffff99" aria-label="Impostazioni">⚙️</button>
-      <button id="btn-me" class="w-10 h-10 rounded-full grid place-items-center font-black text-white"
-              style="background:var(--brand)" aria-label="Chi sta usando l'app">I</button>
+      <button id="btn-settings" class="w-10 h-10 rounded-xl grid place-items-center text-xl" style="background:#ffffff99" aria-label="Impostazioni">⚙️</button>
+      <button id="btn-me" class="w-10 h-10 rounded-full grid place-items-center font-black text-white" style="background:var(--brand)" aria-label="Chi usa l'app">I</button>
     </div>
   </div>
 </header>
 
-<!-- banner modalità locale -->
-<div id="local-banner" hidden class="mx-3 mt-3 rounded-xl border-2 border-amber-500 bg-amber-50 p-3 text-sm font-bold text-amber-900"></div>
+<div id="local-banner" hidden class="mx-4 mt-3 rounded-xl border-2 border-amber-500 bg-amber-50 p-3 text-sm font-bold text-amber-900"></div>
 
-<!-- ============================ SEZIONI ============================ -->
-<main class="px-3 pt-3" style="padding-bottom:118px">
+<main class="px-4 pt-4" style="padding-bottom:150px">
+  <section id="view-oggi"><div id="oggi-body" class="space-y-6">
+    <div class="text-center py-12"><div class="text-5xl animate-pulse">🌾</div><p class="mt-3 font-black text-lg">Caricamento…</p></div>
+  </div></section>
 
-  <!-- ---------- OGGI ---------- -->
-  <section id="view-oggi">
-    <div id="oggi-body" class="space-y-5">
-      <div class="text-center py-12">
-        <div class="text-5xl animate-pulse">🌾</div>
-        <p class="mt-3 font-black text-lg">Caricamento…</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- ---------- LAVORI ---------- -->
-  <section id="view-lavori" hidden class="space-y-5">
-    <!-- form rapido, come nel mockup -->
-    <div class="card">
-      <h2 class="h-sec">➕ Aggiungi attività</h2>
-      <form id="form-lavoro" class="space-y-3">
-        <input id="nl-title" class="field" placeholder="Nuova attività" maxlength="140" autocomplete="off" required>
-
-        <div class="flex items-center gap-2">
-          <span class="lbl w-16 shrink-0">Cosa</span>
-          <div id="nl-category" class="flex flex-wrap gap-2 flex-1"></div>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="lbl w-16 shrink-0">Tempo</span>
-          <div id="nl-time" class="flex gap-2 flex-1"></div>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="lbl w-16 shrink-0">Chi</span>
-          <div id="nl-who" class="flex gap-2 flex-1"></div>
-        </div>
-
-        <button type="button" id="nl-more" class="btn btn-ghost btn-sm w-full">＋ Altro (data, priorità, foto, note)</button>
-
-        <div id="nl-extra" hidden class="space-y-3 pt-1">
-          <div>
-            <span class="lbl">Priorità</span>
-            <div id="nl-priority" class="flex gap-2 mt-1.5"></div>
-          </div>
-          <div>
-            <span class="lbl">Scadenza</span>
-            <div id="nl-quickdate" class="flex gap-2 mt-1.5 overflow-x-auto no-sb"></div>
-            <input id="nl-due" type="date" class="field mt-2">
-          </div>
-          <textarea id="nl-notes" rows="2" class="field" placeholder="Note (opzionale)"></textarea>
-          <div>
-            <button type="button" class="btn btn-ghost w-full" data-photo-pick="nl">📷 Aggiungi foto</button>
-            <div id="nl-photo-wrap" hidden class="mt-2 relative">
-              <img id="nl-photo-img" class="thumb" alt="Foto scelta">
-              <button type="button" class="btn btn-danger btn-sm absolute top-2 right-2" data-photo-clear="nl">✕ Togli</button>
-            </div>
-          </div>
-        </div>
-
-        <button type="submit" class="btn btn-primary btn-wide">＋ Aggiungi</button>
-      </form>
-    </div>
-
-    <div class="flex gap-2">
-      <button class="chip flex-1" data-mine="tutti">Tutti i lavori</button>
-      <button class="chip flex-1" data-mine="miei">Solo i miei</button>
-    </div>
-
-    <div id="lavori-body" class="space-y-5"></div>
-  </section>
-
-  <!-- ---------- REGISTRO ---------- -->
-  <section id="view-registro" hidden class="space-y-5">
-    <div class="card">
-      <h2 class="h-sec">📓 Nuova nota</h2>
-      <form id="form-nota" class="space-y-3">
-        <input id="nn-title" class="field" placeholder="Es. Vacca 12 — zoppia zampa dx" maxlength="140" required autocomplete="off">
-        <textarea id="nn-notes" rows="3" class="field" placeholder="Dettagli (opzionale)"></textarea>
-        <button type="button" class="btn btn-ghost w-full" data-photo-pick="nn">📷 Scatta o scegli foto</button>
-        <div id="nn-photo-wrap" hidden class="relative">
-          <img id="nn-photo-img" class="thumb" alt="Foto scelta">
-          <button type="button" class="btn btn-danger btn-sm absolute top-2 right-2" data-photo-clear="nn">✕ Togli</button>
-        </div>
-        <button type="submit" class="btn btn-primary btn-wide">Salva nota</button>
-      </form>
-    </div>
-    <div id="registro-body" class="space-y-3"></div>
-  </section>
-
-  <!-- ---------- SPESA ---------- -->
-  <section id="view-spesa" hidden class="space-y-5">
-    <div class="card">
-      <h2 class="h-sec">🛒 Aggiungi alla lista</h2>
-      <form id="form-spesa" class="flex gap-2">
-        <input id="ns-title" class="field flex-1" placeholder="Es. Mangime 25 kg" maxlength="90" required autocomplete="off">
-        <button type="submit" class="btn btn-primary px-5">＋</button>
-      </form>
-    </div>
-    <div id="spesa-body" class="space-y-3"></div>
-  </section>
-
-  <!-- ---------- STORICO ---------- -->
-  <section id="view-storico" hidden class="space-y-3">
-    <div id="storico-body" class="space-y-3"></div>
-  </section>
-
+  <section id="view-calendario" hidden><div id="calendario-body" class="space-y-5"></div></section>
+  <section id="view-lavori"     hidden><div id="lavori-body"     class="space-y-6"></div></section>
+  <section id="view-registro"   hidden><div id="registro-body"   class="space-y-3"></div></section>
+  <section id="view-spesa"      hidden><div id="spesa-body"      class="space-y-5"></div></section>
+  <section id="view-storico"    hidden><div id="storico-body"    class="space-y-3"></div></section>
 </main>
 
-<!-- ============================ NAV BASSO ============================ -->
+<button id="fab"><span class="text-2xl leading-none">＋</span><span id="fab-label">Attività</span></button>
+
 <nav id="nav" aria-label="Sezioni">
-  <button class="tab" data-view="oggi"     aria-current="page"><span class="ic">🚜</span>Oggi</button>
+  <button class="tab" data-view="oggi" aria-current="page"><span class="ic">🚜</span>Oggi</button>
+  <button class="tab" data-view="calendario"><span class="ic">📅</span>Calendario</button>
   <button class="tab" data-view="lavori"><span class="ic">🔨</span>Lavori</button>
   <button class="tab" data-view="registro"><span class="ic">📓</span>Registro</button>
   <button class="tab" data-view="spesa"><span class="ic">🛒</span>Spesa</button>
-  <button class="tab" data-view="storico"><span class="ic">✅</span>Storico</button>
 </nav>
 
-<!-- ============================ SHEET DETTAGLIO/MODIFICA ============================ -->
 <div id="sheet" hidden class="fixed inset-0 z-50">
   <div id="sheet-bg" class="absolute inset-0 bg-black/50"></div>
   <div class="absolute inset-x-0 bottom-0 max-h-[94vh] flex flex-col sheet-panel rounded-t-3xl overflow-hidden" style="background:var(--cream)">
@@ -372,15 +214,13 @@ insert into public.tasks (kind, title, is_daily_routine, assigned_to, estimated_
   </div>
 </div>
 
-<!-- ============================ LIGHTBOX FOTO ============================ -->
 <div id="lightbox" hidden class="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-3">
   <img alt="Foto ingrandita">
   <button id="lb-close" class="absolute top-4 right-4 w-12 h-12 rounded-full bg-white/90 text-2xl font-black">✕</button>
 </div>
 
 <input id="photo-input" type="file" accept="image/*" capture="environment" hidden>
-
-<div id="toast" hidden class="fixed z-[70] left-1/2 -translate-x-1/2 bottom-24 px-4 py-3 rounded-xl text-white font-bold text-sm shadow-xl max-w-[92vw] text-center" style="background:#20281A"></div>
+<div id="toast" hidden class="fixed z-[70] left-1/2 -translate-x-1/2 bottom-40 px-4 py-3 rounded-xl text-white font-bold text-sm shadow-xl max-w-[92vw] text-center" style="background:#20281A"></div>
 
 <script>
 'use strict';
@@ -396,29 +236,28 @@ const CONFIGURED = /^https:\/\/[a-z0-9-]+\.supabase\.(co|in)\/?$/i.test(SUPABASE
                    && SUPABASE_ANON_KEY.trim().length > 20
                    && !/^INCOLLA_QUI/.test(SUPABASE_ANON_KEY.trim());
 
-/* ---------- Vocabolari: pochi valori, scelte veloci ---------- */
-const CATEGORIES = [
-  { v: 'Animali',  e: '🐄' },
-  { v: 'Recinti',  e: '🚧' },
-  { v: 'Macchine', e: '🚜' },
-  { v: 'Altro',    e: '📌' }
-];
-const TIMES     = ['30m', '1h', '2h+'];
-const WHO       = ['Io', 'Anna', 'Tutti'];
-const PRIORITY  = ['Alta', 'Media', 'Bassa'];
-const catEmoji  = (v) => (CATEGORIES.find((c) => c.v === v) || {}).e || '📌';
+const CATEGORIES = [{ v: 'Animali', e: '🐄' }, { v: 'Recinti', e: '🚧' }, { v: 'Macchine', e: '🚜' }, { v: 'Altro', e: '📌' }];
+const TIMES    = ['30m', '1h', '2h+'];
+const WHO      = ['Io', 'Anna', 'Tutti'];
+const PRIORITY = ['Alta', 'Media', 'Bassa'];
+const STATI    = ['Da fare', 'In corso', 'Completato'];
+const catEmoji = (v) => (CATEGORIES.find((c) => c.v === v) || {}).e || '📌';
 
 /* ---------- Stato ---------- */
 let tasks      = [];
 let view       = 'oggi';
-let mine       = 'tutti';                                  // filtro in Lavori
+let mine       = 'tutti';
 let me         = localStorage.getItem('fattoria_me') || 'Io';
 let loadFailed = false;
 let reloadSeq  = 0;
-let sheetId    = null;
 
-const draft = { category: 'Animali', estimated_time: '30m', assigned_to: 'Io', priority: 'Media' };
-const photo = { nl: null, nn: null, sheet: null };          // { blob, dataUrl }
+// stato dello sheet: 'new' | 'edit' | 'settings' | null
+let sheetMode = null, sheetId = null, sheetKind = 'Lavoro';
+let form = {};                       // valori del form aperto nello sheet
+const photo = { sheet: null };
+
+// calendario
+let calY, calM, calSel;              // anno, mese (0-11), giorno selezionato (ISO)
 
 const $  = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
@@ -431,6 +270,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const TODAY = iso(new Date());
 const plusDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
+const MESI = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
 
 function daysFromToday(isoDate) {
   if (!isoDate) return null;
@@ -448,16 +288,22 @@ function dateLabel(isoDate) {
   const [y, m, d] = isoDate.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
 }
+function dateLungo(isoDate) {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const t = new Date(y, m - 1, d).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+  const pre = isoDate === TODAY ? 'Oggi · ' : isoDate === plusDays(1) ? 'Domani · ' : isoDate === plusDays(-1) ? 'Ieri · ' : '';
+  return pre + t.charAt(0).toUpperCase() + t.slice(1);
+}
 function stampLabel(ts) {
   if (!ts) return '';
   const d = new Date(ts);
-  const giorno = iso(d) === TODAY ? 'Oggi' : iso(d) === plusDays(-1) ? 'Ieri'
+  const g = iso(d) === TODAY ? 'Oggi' : iso(d) === plusDays(-1) ? 'Ieri'
     : d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
-  return `${giorno} · ${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
+  return `${g} · ${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 /* ==========================================================================
-   LIVELLO DATI: Supabase oppure localStorage (per provare senza configurare)
+   DATI: Supabase oppure memoria del dispositivo
    ========================================================================== */
 let db = null, channel = null;
 const LS = 'fattoria_v2';
@@ -467,16 +313,13 @@ const localStore = {
   write(v) { try { localStorage.setItem(LS, JSON.stringify(v)); } catch (e) { toast('Memoria del browser piena', true); } },
   async load() {
     let all = this.read();
-    if (!all.length) {                     // prima apertura: routine di esempio
-      all = [
-        ['Cibo animali', 'Tutti', 'Animali'], ['Acqua animali', 'Tutti', 'Animali'],
-        ['Raccolta uova', 'Anna', 'Animali'], ['Controllo recinti', 'Io', 'Recinti'],
-        ['Mungitura', 'Tutti', 'Animali']
-      ].map((r, i) => ({
-        id: crypto.randomUUID(), kind: 'Routine', title: r[0], assigned_to: r[1], category: r[2],
-        is_daily_routine: true, estimated_time: '30m', priority: 'Media', status: 'Da fare',
-        sort_order: i + 1, created_at: new Date().toISOString()
-      }));
+    if (!all.length) {
+      all = [['Cibo animali', 'Tutti', 'Animali'], ['Acqua animali', 'Tutti', 'Animali'],
+             ['Raccolta uova', 'Anna', 'Animali'], ['Controllo recinti', 'Io', 'Recinti'],
+             ['Mungitura', 'Tutti', 'Animali']]
+        .map((r, i) => ({ id: crypto.randomUUID(), kind: 'Routine', title: r[0], assigned_to: r[1],
+          category: r[2], is_daily_routine: true, estimated_time: '30m', priority: 'Media',
+          status: 'Da fare', sort_order: i + 1, created_at: new Date().toISOString() }));
       this.write(all);
     }
     return all;
@@ -488,30 +331,21 @@ const localStore = {
   },
   async update(id, patch) {
     const all = this.read(); const i = all.findIndex((t) => t.id === id);
-    if (i < 0) throw new Error('Non trovato'); all[i] = { ...all[i], ...patch }; this.write(all); return all[i];
+    if (i < 0) throw new Error('Non trovato');
+    all[i] = { ...all[i], ...patch }; this.write(all); return all[i];
   },
   async remove(id) { this.write(this.read().filter((t) => t.id !== id)); },
-  async uploadPhoto(blob, dataUrl) { return dataUrl; }      // in locale la foto resta come dato interno
+  async uploadPhoto(blob, dataUrl) { return dataUrl; }
 };
 
 const remoteStore = {
   async load() {
     const { data, error } = await db.from('tasks').select('*').order('sort_order').order('created_at', { ascending: false });
-    if (error) throw error;
-    return data || [];
+    if (error) throw error; return data || [];
   },
-  async insert(row) {
-    const { data, error } = await db.from('tasks').insert(row).select().single();
-    if (error) throw error; return data;
-  },
-  async update(id, patch) {
-    const { data, error } = await db.from('tasks').update(patch).eq('id', id).select().single();
-    if (error) throw error; return data;
-  },
-  async remove(id) {
-    const { error } = await db.from('tasks').delete().eq('id', id);
-    if (error) throw error;
-  },
+  async insert(row) { const { data, error } = await db.from('tasks').insert(row).select().single(); if (error) throw error; return data; },
+  async update(id, p) { const { data, error } = await db.from('tasks').update(p).eq('id', id).select().single(); if (error) throw error; return data; },
+  async remove(id) { const { error } = await db.from('tasks').delete().eq('id', id); if (error) throw error; },
   async uploadPhoto(blob) {
     const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
     const { error } = await db.storage.from(BUCKET).upload(name, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
@@ -523,13 +357,13 @@ const remoteStore = {
 let store = localStore;
 
 /* ==========================================================================
-   FOTO: compressione lato telefono (rete debole in stalla) + anteprima
+   FOTO
    ========================================================================== */
 async function shrink(file, max = 1280, q = 0.72) {
   const bmp = await (async () => {
     if (window.createImageBitmap) { try { return await createImageBitmap(file); } catch (e) {} }
     return await new Promise((res, rej) => {
-      const im = new Image(); const fr = new FileReader();
+      const im = new Image(), fr = new FileReader();
       fr.onload = () => { im.onload = () => res(im); im.onerror = rej; im.src = fr.result; };
       fr.onerror = rej; fr.readAsDataURL(file);
     });
@@ -543,56 +377,42 @@ async function shrink(file, max = 1280, q = 0.72) {
   return { blob, dataUrl: c.toDataURL('image/jpeg', q) };
 }
 
-let photoTarget = null;
 $('#photo-input').addEventListener('change', async (ev) => {
   const input = ev.target;
   const f = input.files && input.files[0];
-  if (!f || !photoTarget) { input.value = ''; return; }
+  if (!f) { input.value = ''; return; }
   try {
     toast('Preparo la foto…');
-    const out = await shrink(f);
-    photo[photoTarget] = out;
-    if (photoTarget === 'sheet') { openSheet(sheetId); }
-    else {
-      $(`#${photoTarget}-photo-img`).src = out.dataUrl;
-      $(`#${photoTarget}-photo-wrap`).hidden = false;
-    }
-    toast('Foto pronta (' + Math.round(out.blob.size / 1024) + ' KB)');
-  } catch (e) {
-    toast('Foto non leggibile: ' + (e.message || e), true);
-  } finally {
-    // Azzeriamo SOLO ora: farlo prima invalida il file e la conversione
-    // non si completa. Serve comunque, per poter riscegliere la stessa foto.
-    input.value = '';
-  }
+    photo.sheet = await shrink(f);
+    // Prima di ridisegnare il modulo salvo quello che è già stato scritto,
+    // altrimenti titolo e note digitati andrebbero persi.
+    leggiCampi();
+    buildSheet();                                   // ridisegna mostrando l'anteprima
+    toast('Foto pronta (' + Math.round(photo.sheet.blob.size / 1024) + ' KB)');
+  } catch (e) { toast('Foto non leggibile: ' + (e.message || e), true); }
+  finally { input.value = ''; }
 });
 
 /* ==========================================================================
-   UTILITÀ UI
+   UI DI SERVIZIO
    ========================================================================== */
 let toastTimer = null;
 function toast(msg, err = false) {
   const el = $('#toast');
-  el.textContent = msg;
-  el.style.background = err ? '#8C1D18' : '#20281A';
-  el.hidden = false;
+  el.textContent = msg; el.style.background = err ? '#8C1D18' : '#20281A'; el.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.hidden = true; }, err ? 5000 : 2100);
 }
 function setConn(text, bg, fg) {
-  const el = $('#conn');
-  el.textContent = text;
+  const el = $('#conn'); el.textContent = text;
   el.style.background = bg; el.style.color = fg || '#14200F'; el.style.borderColor = 'transparent';
 }
-// `campo` è il nome del dato che il chip imposta; `attr` è l'attributo che lo
-// veicola (data-nl nel form rapido, data-sh nello sheet). Il valore va SEMPRE
-// in data-value, altrimenti il gestore dei tap non sa cosa impostare.
-function chips(host, values, current, attr, campo, cls = 'flex-1') {
-  $(host).innerHTML = values.map((v) => {
+function chipRow(values, current, campo, cls = 'flex-1') {
+  return values.map((v) => {
     const val = typeof v === 'object' ? v.v : v;
     const lab = typeof v === 'object' ? `${v.e} ${v.v}` : v;
     return `<button type="button" class="chip ${cls}" aria-pressed="${current === val}"
-              ${attr}="${campo}" data-value="${esc(val)}">${esc(lab)}</button>`;
+              data-set="${campo}" data-value="${esc(val)}">${esc(lab)}</button>`;
   }).join('');
 }
 function badgesOf(t) {
@@ -603,47 +423,45 @@ function badgesOf(t) {
   if (t.priority === 'Alta' && t.status !== 'Completato') out.push('<span class="badge badge-pri">🔥 Alta</span>');
   if (t.due_date && t.status !== 'Completato') {
     const n = daysFromToday(t.due_date);
-    const cls = n < 0 ? 'badge-hot' : n === 0 ? 'badge-today' : '';
-    out.push(`<span class="badge ${cls}">📅 ${esc(dateLabel(t.due_date))}</span>`);
+    out.push(`<span class="badge ${n < 0 ? 'badge-hot' : n === 0 ? 'badge-today' : ''}">📅 ${esc(dateLabel(t.due_date))}</span>`);
   }
   return out.join('');
 }
-function photoTag(t) {
-  return t.photo_url ? `<img src="${esc(t.photo_url)}" class="thumb mt-2" alt="Foto" loading="lazy" data-lb="${esc(t.photo_url)}">` : '';
-}
+const photoTag = (t, cls = 'mt-2') => t.photo_url
+  ? `<img src="${esc(t.photo_url)}" class="thumb ${cls}" alt="Foto" loading="lazy" data-lb="${esc(t.photo_url)}">` : '';
 
 /* ==========================================================================
-   SELEZIONI / ORDINAMENTI
+   SELEZIONI
    ========================================================================== */
 const routineDone = (t) => t.last_done_date === TODAY;
 const isMine = (t) => mine === 'tutti' || t.assigned_to === me || t.assigned_to === 'Tutti';
-
 const byUrgency = (a, b) => {
   const da = a.due_date ? daysFromToday(a.due_date) : 9e5;
   const dbb = b.due_date ? daysFromToday(b.due_date) : 9e5;
   if (da !== dbb) return da - dbb;
-  const rank = { Alta: 0, Media: 1, Bassa: 2 };
-  const pa = rank[a.priority] ?? 1, pb = rank[b.priority] ?? 1;
+  const r = { Alta: 0, Media: 1, Bassa: 2 };
+  const pa = r[a.priority] ?? 1, pb = r[b.priority] ?? 1;
   if (pa !== pb) return pa - pb;
   return String(b.created_at).localeCompare(String(a.created_at));
 };
-
 const routines = () => tasks.filter((t) => t.kind === 'Routine').sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 const lavori   = () => tasks.filter((t) => t.kind === 'Lavoro');
 const note     = () => tasks.filter((t) => t.kind === 'Nota').sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
 const spesa    = () => tasks.filter((t) => t.kind === 'Spesa');
 
 /* ==========================================================================
-   RENDER: OGGI
+   SCHEDE
    ========================================================================== */
 function cardLavoro(t, azioni = true) {
   const late = t.status !== 'Completato' && t.due_date && daysFromToday(t.due_date) < 0;
+  const fatto = t.status === 'Completato';
   return `
-    <article class="card ${late ? 'card-hot' : ''} ${t.status === 'Completato' ? 'card-done' : ''}" data-open="${t.id}">
+    <article class="card card-tap ${late ? 'card-hot' : ''} ${fatto ? 'card-done' : ''}" data-open="${t.id}" role="button" tabindex="0">
       <div class="flex items-start gap-2">
-        <h3 class="flex-1 font-black text-base leading-tight ${t.status === 'Completato' ? 'line-through opacity-60' : ''}">${esc(t.title)}</h3>
-        ${azioni ? `<button class="btn btn-primary btn-sm shrink-0" data-act="${t.status === 'Da fare' ? 'start' : 'done'}" data-id="${t.id}">
-             ${t.status === 'Da fare' ? '▶ Inizia' : '✓ Fatto'}</button>` : ''}
+        <h3 class="flex-1 font-black text-base leading-tight ${fatto ? 'line-through opacity-60' : ''}">${esc(t.title)}</h3>
+        ${azioni && !fatto ? `<button class="btn btn-primary btn-sm shrink-0" data-act="${t.status === 'Da fare' ? 'start' : 'done'}" data-id="${t.id}">
+             ${t.status === 'Da fare' ? '▶ Inizia' : '✓ Fatto'}</button>`
+          : `<span class="text-xl shrink-0" style="color:var(--ink-2)">›</span>`}
       </div>
       <div class="flex flex-wrap gap-1.5 mt-2">${badgesOf(t)}</div>
       ${t.notes ? `<p class="mt-2 text-sm font-semibold" style="color:var(--ink-2)">${esc(t.notes)}</p>` : ''}
@@ -651,77 +469,167 @@ function cardLavoro(t, azioni = true) {
     </article>`;
 }
 
+function rigaRoutine(t) {
+  return `
+    <div class="rt ${routineDone(t) ? 'rt-on' : ''}">
+      <button type="button" class="rt-box" data-act="routine" data-id="${t.id}"
+              aria-label="${routineDone(t) ? 'Annulla' : 'Segna come fatto'}">✓</button>
+      <button type="button" class="rt-open" data-open="${t.id}">
+        <span class="rt-title">${esc(t.title)}</span>
+        <span class="mt-1 flex flex-wrap gap-1.5">
+          <span class="badge badge-who">👤 ${esc(t.assigned_to)}</span>
+          ${t.estimated_time ? `<span class="badge">⏱️ ${esc(t.estimated_time)}</span>` : ''}
+        </span>
+      </button>
+      <span class="text-xl" style="color:var(--ink-2)">›</span>
+    </div>`;
+}
+
+/* ==========================================================================
+   SEZIONE: OGGI
+   ========================================================================== */
 function renderOggi() {
   const rt = routines();
   const fatte = rt.filter(routineDone).length;
   const inCorso = lavori().filter((t) => t.status === 'In corso').sort(byUrgency);
   const urgenti = lavori().filter((t) => t.status === 'Da fare' && t.due_date && daysFromToday(t.due_date) <= 0).sort(byUrgency);
+  const domani  = lavori().filter((t) => t.status === 'Da fare' && t.due_date && daysFromToday(t.due_date) === 1).sort(byUrgency);
 
   let h = '';
+  if (urgenti.length) h += `<section><h2 class="h-sec">⚠️ Da fare oggi <span class="h-count">${urgenti.length}</span></h2>
+      <div class="space-y-3">${urgenti.map((t) => cardLavoro(t)).join('')}</div></section>`;
+  if (inCorso.length) h += `<section><h2 class="h-sec">🔄 In corso <span class="h-count">${inCorso.length}</span></h2>
+      <div class="space-y-3">${inCorso.map((t) => cardLavoro(t)).join('')}</div></section>`;
+  if (!urgenti.length && !inCorso.length) h += `<section class="card text-center py-8">
+      <div class="text-4xl">👍</div><p class="mt-2 font-black">Nessuna scadenza oggi</p>
+      <p class="mt-1 text-sm font-semibold" style="color:var(--ink-2)">Guarda il Calendario per i prossimi giorni.</p></section>`;
 
   h += `<section>
       <h2 class="h-sec">☀️ Routine di oggi <span class="h-count">${fatte}/${rt.length}</span></h2>
-      <div class="space-y-2">
-        ${rt.length ? rt.map((t) => `
-          <button class="rt ${routineDone(t) ? 'rt-on' : ''}" data-act="routine" data-id="${t.id}">
-            <span class="rt-box">✓</span>
-            <span class="flex-1">
-              <span class="rt-title">${esc(t.title)}</span>
-              <span class="mt-1 flex flex-wrap gap-1.5">
-                <span class="badge badge-who">👤 ${esc(t.assigned_to)}</span>
-                ${t.estimated_time ? `<span class="badge">⏱️ ${esc(t.estimated_time)}</span>` : ''}
-              </span>
-            </span>
-          </button>`).join('')
-        : `<p class="text-sm font-semibold" style="color:var(--ink-2)">Nessuna routine. Aggiungine una qui sotto.</p>`}
-      </div>
-      <form id="form-routine" class="flex gap-2 mt-2">
-        <input id="nr-title" class="field flex-1" placeholder="Nuova routine giornaliera" maxlength="90" required autocomplete="off">
-        <button type="submit" class="btn btn-primary px-5">＋</button>
-      </form>
+      <div class="space-y-2.5">${rt.length ? rt.map(rigaRoutine).join('')
+        : '<p class="card text-center font-bold py-6">Nessuna routine. Aggiungila col pulsante ＋</p>'}</div>
+      <p class="text-xs font-semibold mt-2 px-1" style="color:var(--ink-2)">
+        Cerchietto = fatto · tocca il nome per modificarla</p>
     </section>`;
 
-  if (urgenti.length) h += `<section><h2 class="h-sec">⚠️ In scadenza <span class="h-count">${urgenti.length}</span></h2>
-      <div class="space-y-2.5">${urgenti.map((t) => cardLavoro(t)).join('')}</div></section>`;
+  if (domani.length) h += `<section><h2 class="h-sec">🌅 Domani <span class="h-count">${domani.length}</span></h2>
+      <div class="space-y-3">${domani.map((t) => cardLavoro(t)).join('')}</div></section>`;
 
-  if (inCorso.length) h += `<section><h2 class="h-sec">🔄 In corso <span class="h-count">${inCorso.length}</span></h2>
-      <div class="space-y-2.5">${inCorso.map((t) => cardLavoro(t)).join('')}</div></section>`;
-
-  if (!urgenti.length && !inCorso.length) {
-    h += `<section class="card text-center py-8">
-        <div class="text-4xl">👍</div>
-        <p class="mt-2 font-black">Nessuna scadenza oggi</p>
-        <p class="mt-1 text-sm font-semibold" style="color:var(--ink-2)">I lavori programmati sono nella sezione Lavori.</p>
-      </section>`;
-  }
   $('#oggi-body').innerHTML = h;
 }
 
 /* ==========================================================================
-   RENDER: LAVORI
+   SEZIONE: CALENDARIO
+   ========================================================================== */
+function delGiorno(g) {
+  const aperte  = lavori().filter((t) => t.due_date === g && t.status !== 'Completato').sort(byUrgency);
+  const fatte   = lavori().filter((t) => t.due_date === g && t.status === 'Completato');
+  const fatteIn = lavori().filter((t) => t.status === 'Completato' && t.due_date !== g
+                                        && String(t.completed_at || '').slice(0, 10) === g);
+  const rtFatte = routines().filter((t) => t.last_done_date === g);
+  return { aperte, fatte: fatte.concat(fatteIn), rtFatte };
+}
+
+function renderCalendario() {
+  const primo = new Date(calY, calM, 1);
+  const giorniMese = new Date(calY, calM + 1, 0).getDate();
+  const offset = (primo.getDay() + 6) % 7;            // settimana che inizia lunedì
+
+  let celle = '';
+  for (let i = 0; i < offset; i++) celle += '<div class="cal-cell out"></div>';
+  for (let d = 1; d <= giorniMese; d++) {
+    const g = `${calY}-${String(calM + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const { aperte, fatte, rtFatte } = delGiorno(g);
+    const late = aperte.some((t) => daysFromToday(t.due_date) < 0);
+    const run  = aperte.some((t) => t.status === 'In corso');
+    let dots = '';
+    if (late) dots += '<span class="dot dot-late"></span>';
+    if (run)  dots += '<span class="dot dot-run"></span>';
+    if (aperte.length && !late) dots += '<span class="dot dot-open"></span>';
+    if (fatte.length + rtFatte.length) dots += '<span class="dot dot-done"></span>';
+    const cls = ['cal-cell', g === TODAY ? 'today' : '', g === calSel ? 'sel' : ''].join(' ');
+    celle += `<button type="button" class="${cls}" data-cal="${g}">
+        <span>${d}</span><span class="cal-dots">${dots}</span></button>`;
+  }
+
+  const { aperte, fatte, rtFatte } = delGiorno(calSel);
+
+  $('#calendario-body').innerHTML = `
+    <div class="card">
+      <div class="flex items-center gap-2">
+        <button class="btn btn-ghost btn-sm" data-act="cal-prev" aria-label="Mese precedente">‹</button>
+        <h2 class="flex-1 text-center font-black text-base">${MESI[calM]} ${calY}</h2>
+        <button class="btn btn-ghost btn-sm" data-act="cal-next" aria-label="Mese successivo">›</button>
+      </div>
+      <div class="cal-grid mt-3">
+        ${['L', 'M', 'M', 'G', 'V', 'S', 'D'].map((d) => `<div class="cal-dow">${d}</div>`).join('')}
+        ${celle}
+      </div>
+      <div class="flex flex-wrap gap-3 mt-3 text-xs font-bold" style="color:var(--ink-2)">
+        <span class="flex items-center gap-1"><span class="dot dot-late"></span>in ritardo</span>
+        <span class="flex items-center gap-1"><span class="dot dot-open"></span>da fare</span>
+        <span class="flex items-center gap-1"><span class="dot dot-run"></span>in corso</span>
+        <span class="flex items-center gap-1"><span class="dot dot-done"></span>fatto</span>
+      </div>
+      <div class="flex gap-2 mt-3">
+        <button class="btn btn-ghost btn-sm flex-1" data-act="cal-today">Vai a oggi</button>
+        <button class="btn btn-ghost btn-sm flex-1" data-view="storico">📋 Storico completo</button>
+      </div>
+    </div>
+
+    <section>
+      <h2 class="h-sec">${esc(dateLungo(calSel))}</h2>
+      ${aperte.length ? `<div class="space-y-3">${aperte.map((t) => cardLavoro(t)).join('')}</div>`
+        : `<div class="card text-center py-6">
+             <p class="font-black">Niente in programma</p>
+             <button class="btn btn-primary btn-wide mt-3" data-act="new-per-giorno">＋ Aggiungi attività per questo giorno</button>
+           </div>`}
+      ${aperte.length ? `<button class="btn btn-ghost w-full mt-3" data-act="new-per-giorno">＋ Aggiungi in questo giorno</button>` : ''}
+    </section>
+
+    ${(fatte.length || rtFatte.length) ? `<section>
+      <h2 class="h-sec">✅ Fatto in questo giorno <span class="h-count">${fatte.length + rtFatte.length}</span></h2>
+      <div class="space-y-3">
+        ${fatte.map((t) => cardLavoro(t, false)).join('')}
+        ${rtFatte.map((t) => `<article class="card card-done">
+            <div class="flex items-start gap-2">
+              <h3 class="flex-1 font-bold">${esc(t.title)}</h3>
+              <span class="badge">🔁 Routine</span>
+            </div></article>`).join('')}
+      </div></section>` : ''}`;
+}
+
+/* ==========================================================================
+   SEZIONE: LAVORI
    ========================================================================== */
 function renderLavori() {
-  $$('[data-mine]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mine === mine));
   const v = lavori().filter(isMine);
   const daFare  = v.filter((t) => t.status === 'Da fare').sort(byUrgency);
   const inCorso = v.filter((t) => t.status === 'In corso').sort(byUrgency);
+  const senzaData = daFare.filter((t) => !t.due_date);
+  const conData   = daFare.filter((t) => t.due_date);
 
-  let h = '';
+  let h = `<div class="flex gap-2">
+      <button class="chip flex-1" data-mine="tutti" aria-pressed="${mine === 'tutti'}">Tutti i lavori</button>
+      <button class="chip flex-1" data-mine="miei"  aria-pressed="${mine === 'miei'}">Solo i miei</button>
+    </div>`;
   if (inCorso.length) h += `<section><h2 class="h-sec">🔄 In corso <span class="h-count">${inCorso.length}</span></h2>
-      <div class="space-y-2.5">${inCorso.map((t) => cardLavoro(t)).join('')}</div></section>`;
-  h += `<section><h2 class="h-sec">🔨 Da fare <span class="h-count">${daFare.length}</span></h2>
-      <div class="space-y-2.5">${daFare.length ? daFare.map((t) => cardLavoro(t)).join('')
-        : `<p class="card text-center font-bold py-6">Nessun lavoro in attesa 🎉</p>`}</div></section>`;
+      <div class="space-y-3">${inCorso.map((t) => cardLavoro(t)).join('')}</div></section>`;
+  h += `<section><h2 class="h-sec">🔨 Con scadenza <span class="h-count">${conData.length}</span></h2>
+      <div class="space-y-3">${conData.length ? conData.map((t) => cardLavoro(t)).join('')
+        : '<p class="card text-center font-bold py-6">Nessun lavoro in scadenza 🎉</p>'}</div></section>`;
+  if (senzaData.length) h += `<section><h2 class="h-sec">📥 Senza data <span class="h-count">${senzaData.length}</span></h2>
+      <div class="space-y-3">${senzaData.map((t) => cardLavoro(t)).join('')}</div></section>`;
   $('#lavori-body').innerHTML = h;
 }
 
 /* ==========================================================================
-   RENDER: REGISTRO
+   SEZIONE: REGISTRO
    ========================================================================== */
 function renderRegistro() {
   const n = note();
   $('#registro-body').innerHTML = n.length ? n.map((t) => `
-      <article class="card" data-open="${t.id}">
+      <article class="card card-tap" data-open="${t.id}" role="button" tabindex="0">
         <div class="flex items-start gap-2">
           <h3 class="flex-1 font-black text-base leading-tight">${esc(t.title)}</h3>
           <span class="badge">${stampLabel(t.created_at)}</span>
@@ -729,36 +637,34 @@ function renderRegistro() {
         ${t.notes ? `<p class="mt-2 text-sm font-semibold" style="color:var(--ink-2)">${esc(t.notes)}</p>` : ''}
         ${photoTag(t)}
       </article>`).join('')
-    : `<p class="card text-center font-bold py-8">Nessuna nota.<br><span class="font-semibold text-sm">Usa il modulo sopra per annotare animali e attrezzature, anche con foto.</span></p>`;
+    : `<p class="card text-center font-bold py-8">Nessuna nota.<br>
+        <span class="font-semibold text-sm">Col pulsante ＋ annoti animali e attrezzature, anche con foto.</span></p>`;
 }
 
 /* ==========================================================================
-   RENDER: SPESA
+   SEZIONE: SPESA
    ========================================================================== */
 function renderSpesa() {
   const s = spesa();
-  const daPrendere = s.filter((t) => t.status !== 'Completato');
-  const presi      = s.filter((t) => t.status === 'Completato');
+  const da = s.filter((t) => t.status !== 'Completato');
+  const presi = s.filter((t) => t.status === 'Completato');
   const riga = (t) => `
-    <button class="rt ${t.status === 'Completato' ? 'rt-on' : ''}" data-act="spesa" data-id="${t.id}">
-      <span class="rt-box">✓</span>
+    <div class="rt ${t.status === 'Completato' ? 'rt-on' : ''}">
+      <button type="button" class="rt-box" data-act="spesa" data-id="${t.id}" aria-label="Preso">✓</button>
       <span class="rt-title flex-1">${esc(t.title)}</span>
-      <span class="text-xl px-1" data-act="del-spesa" data-id="${t.id}" role="button" aria-label="Elimina">🗑</span>
-    </button>`;
-
-  let h = `<section><h2 class="h-sec">🛒 Da comprare <span class="h-count">${daPrendere.length}</span></h2>
-      <div class="space-y-2">${daPrendere.length ? daPrendere.map(riga).join('')
-        : `<p class="card text-center font-bold py-6">Lista vuota</p>`}</div></section>`;
-  if (presi.length) h += `<section>
-      <h2 class="h-sec">✅ Presi <span class="h-count">${presi.length}</span></h2>
-      <div class="space-y-2">${presi.map(riga).join('')}</div>
-      <button class="btn btn-ghost w-full mt-2" data-act="svuota-spesa">🧹 Togli dalla lista i ${presi.length} articoli presi</button>
-    </section>`;
+      <button type="button" class="text-xl px-2" data-act="del" data-id="${t.id}" aria-label="Elimina">🗑</button>
+    </div>`;
+  let h = `<section><h2 class="h-sec">🛒 Da comprare <span class="h-count">${da.length}</span></h2>
+      <div class="space-y-2.5">${da.length ? da.map(riga).join('')
+        : '<p class="card text-center font-bold py-6">Lista vuota</p>'}</div></section>`;
+  if (presi.length) h += `<section><h2 class="h-sec">✅ Presi <span class="h-count">${presi.length}</span></h2>
+      <div class="space-y-2.5">${presi.map(riga).join('')}</div>
+      <button class="btn btn-ghost w-full mt-3" data-act="svuota-spesa">🧹 Togli dalla lista i ${presi.length} presi</button></section>`;
   $('#spesa-body').innerHTML = h;
 }
 
 /* ==========================================================================
-   RENDER: STORICO
+   SEZIONE: STORICO
    ========================================================================== */
 function renderStorico() {
   const fatti = tasks
@@ -766,51 +672,51 @@ function renderStorico() {
     .map((t) => ({ t, quando: t.kind === 'Routine' ? (t.completed_at || t.last_done_date + 'T12:00:00') : (t.completed_at || t.created_at) }))
     .sort((a, b) => String(b.quando).localeCompare(String(a.quando)));
 
+  let h = `<button class="btn btn-ghost w-full" data-view="calendario">‹ Torna al calendario</button>`;
   if (!fatti.length) {
-    $('#storico-body').innerHTML = `<p class="card text-center font-bold py-10">Ancora nessun lavoro completato.</p>`;
-    return;
-  }
-  // raggruppo per giorno
-  const gruppi = {};
-  fatti.forEach((x) => { const g = String(x.quando).slice(0, 10); (gruppi[g] = gruppi[g] || []).push(x); });
-
-  $('#storico-body').innerHTML = Object.keys(gruppi).sort().reverse().map((g) => `
-    <section>
-      <h2 class="h-sec">📅 ${esc(dateLabel(g) || g)} <span class="h-count">${gruppi[g].length}</span></h2>
-      <div class="space-y-2.5">
-        ${gruppi[g].map(({ t, quando }) => `
-          <article class="card card-done" ${t.kind === 'Lavoro' ? `data-open="${t.id}"` : ''}>
+    h += '<p class="card text-center font-bold py-10">Ancora nessun lavoro completato.</p>';
+  } else {
+    const gruppi = {};
+    fatti.forEach((x) => { const g = String(x.quando).slice(0, 10); (gruppi[g] = gruppi[g] || []).push(x); });
+    h += Object.keys(gruppi).sort().reverse().map((g) => `
+      <section><h2 class="h-sec">📅 ${esc(dateLabel(g) || g)} <span class="h-count">${gruppi[g].length}</span></h2>
+        <div class="space-y-3">${gruppi[g].map(({ t, quando }) => `
+          <article class="card card-done ${t.kind === 'Lavoro' ? 'card-tap' : ''}" ${t.kind === 'Lavoro' ? `data-open="${t.id}" role="button" tabindex="0"` : ''}>
             <div class="flex items-start gap-2">
               <h3 class="flex-1 font-bold text-base leading-tight">${esc(t.title)}</h3>
               <span class="badge">${esc(stampLabel(quando))}</span>
             </div>
             <div class="flex flex-wrap gap-1.5 mt-2">
-              ${t.kind === 'Routine' ? '<span class="badge">🔁 Routine</span>' : ''}
-              ${badgesOf(t)}
+              ${t.kind === 'Routine' ? '<span class="badge">🔁 Routine</span>' : ''}${badgesOf(t)}
             </div>
             ${t.notes ? `<p class="mt-2 text-sm font-semibold" style="color:var(--ink-2)">${esc(t.notes)}</p>` : ''}
             ${photoTag(t)}
-          </article>`).join('')}
-      </div>
-    </section>`).join('');
+          </article>`).join('')}</div></section>`).join('');
+  }
+  $('#storico-body').innerHTML = h;
 }
 
 /* ==========================================================================
-   RENDER: dispatcher
+   RENDER
    ========================================================================== */
+const VIEWS = ['oggi', 'calendario', 'lavori', 'registro', 'spesa', 'storico'];
+const FAB_LABEL = { oggi: 'Attività', calendario: 'Attività', lavori: 'Attività', registro: 'Nota', spesa: 'Spesa', storico: 'Attività' };
+
 function render() {
   if (loadFailed) return;
-  ['oggi', 'lavori', 'registro', 'spesa', 'storico'].forEach((v) => { $('#view-' + v).hidden = (v !== view); });
+  VIEWS.forEach((v) => { $('#view-' + v).hidden = (v !== view); });
   $$('#nav .tab').forEach((b) => {
     if (b.dataset.view === view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
   $('#btn-me').textContent = me === 'Anna' ? 'A' : 'I';
+  $('#fab-label').textContent = FAB_LABEL[view] || 'Attività';
 
-  if (view === 'oggi')     renderOggi();
-  if (view === 'lavori')   renderLavori();
-  if (view === 'registro') renderRegistro();
-  if (view === 'spesa')    renderSpesa();
-  if (view === 'storico')  renderStorico();
+  if (view === 'oggi')       renderOggi();
+  if (view === 'calendario') renderCalendario();
+  if (view === 'lavori')     renderLavori();
+  if (view === 'registro')   renderRegistro();
+  if (view === 'spesa')      renderSpesa();
+  if (view === 'storico')    renderStorico();
 }
 
 function showLoadError(e) {
@@ -824,8 +730,7 @@ function showLoadError(e) {
       <p class="mt-2 text-xs font-mono break-words" style="color:var(--danger)">${esc((e && e.message) || e)}</p>
       <button class="btn btn-primary btn-wide mt-3" data-act="retry">🔄 Riprova</button>
     </div>`;
-  ['lavori', 'registro', 'spesa', 'storico'].forEach((v) => { $('#view-' + v).hidden = true; });
-  $('#view-oggi').hidden = false;
+  VIEWS.forEach((v) => { $('#view-' + v).hidden = (v !== 'oggi'); });
 }
 
 /* ==========================================================================
@@ -846,10 +751,7 @@ async function patch(id, p, msg) {
     await store.update(id, p);
     if (navigator.vibrate) navigator.vibrate(14);
     if (msg) toast(msg);
-  } catch (e) {
-    tasks[i] = before; render();
-    toast('Non salvato: ' + (e.message || e), true);
-  }
+  } catch (e) { tasks[i] = before; render(); toast('Non salvato: ' + (e.message || e), true); }
 }
 
 const toggleRoutine = (id) => {
@@ -859,278 +761,264 @@ const toggleRoutine = (id) => {
                : { last_done_date: TODAY, completed_at: new Date().toISOString() },
         on ? 'Rimesso da fare' : '✓ Fatto');
 };
-
 const toggleSpesa = (id) => {
   const t = tasks.find((x) => x.id === id); if (!t) return;
   const done = t.status === 'Completato';
   patch(id, done ? { status: 'Da fare', completed_at: null }
                  : { status: 'Completato', completed_at: new Date().toISOString() });
 };
-
 async function svuotaSpesa() {
-  const presi = spesa().filter((t) => t.status === 'Completato');
-  for (const t of presi) {
-    try { await store.remove(t.id); tasks = tasks.filter((x) => x.id !== t.id); } catch (e) { toast('Errore: ' + e.message, true); }
+  for (const t of spesa().filter((x) => x.status === 'Completato')) {
+    try { await store.remove(t.id); tasks = tasks.filter((x) => x.id !== t.id); }
+    catch (e) { toast('Errore: ' + e.message, true); }
   }
   render(); toast('Lista ripulita');
 }
-
 async function removeTask(id) {
   try { await store.remove(id); tasks = tasks.filter((t) => t.id !== id); render(); toast('Eliminato'); }
   catch (e) { toast('Non eliminato: ' + (e.message || e), true); }
 }
 
-/* ---------- inserimenti ---------- */
-async function creaLavoro(ev) {
-  ev.preventDefault();
-  const title = $('#nl-title').value.trim();
-  if (!title) { toast('Scrivi cosa c\'è da fare', true); return; }
-  const btn = ev.target.querySelector('button[type="submit"]');
-  btn.disabled = true; btn.textContent = 'Salvo…';
-  try {
-    let url = null;
-    if (photo.nl) url = await store.uploadPhoto(photo.nl.blob, photo.nl.dataUrl);
-    const row = {
-      kind: 'Lavoro', title, category: draft.category, estimated_time: draft.estimated_time,
-      assigned_to: draft.assigned_to, priority: draft.priority, status: 'Da fare',
-      due_date: $('#nl-due').value || null, notes: $('#nl-notes').value.trim() || null, photo_url: url
-    };
-    upsertLocal(await store.insert(row));
-    $('#form-lavoro').reset();
-    photo.nl = null; $('#nl-photo-wrap').hidden = true; $('#nl-extra').hidden = true;
-    $('#nl-more').textContent = '＋ Altro (data, priorità, foto, note)';
-    renderQuickChips();                       // il reset ha svuotato la data: riallineo i chip
-    render(); toast('Attività aggiunta');
-  } catch (e) { toast('Non salvato: ' + (e.message || e), true); }
-  finally { btn.disabled = false; btn.textContent = '＋ Aggiungi'; }
-}
-
-async function creaNota(ev) {
-  ev.preventDefault();
-  const title = $('#nn-title').value.trim();
-  if (!title) return;
-  const btn = ev.target.querySelector('button[type="submit"]');
-  btn.disabled = true; btn.textContent = 'Salvo…';
-  try {
-    let url = null;
-    if (photo.nn) url = await store.uploadPhoto(photo.nn.blob, photo.nn.dataUrl);
-    upsertLocal(await store.insert({ kind: 'Nota', title, notes: $('#nn-notes').value.trim() || null,
-                                     photo_url: url, assigned_to: me, status: 'Da fare' }));
-    $('#form-nota').reset(); photo.nn = null; $('#nn-photo-wrap').hidden = true;
-    render(); toast('Nota salvata');
-  } catch (e) { toast('Non salvata: ' + (e.message || e), true); }
-  finally { btn.disabled = false; btn.textContent = 'Salva nota'; }
-}
-
-async function creaSpesa(ev) {
-  ev.preventDefault();
-  const title = $('#ns-title').value.trim(); if (!title) return;
-  try { upsertLocal(await store.insert({ kind: 'Spesa', title, assigned_to: 'Tutti', status: 'Da fare' }));
-        $('#form-spesa').reset(); render(); }
-  catch (e) { toast('Non aggiunto: ' + (e.message || e), true); }
-}
-
-async function creaRoutine(ev) {
-  ev.preventDefault();
-  const title = $('#nr-title').value.trim(); if (!title) return;
-  try {
-    const n = routines().length + 1;
-    upsertLocal(await store.insert({ kind: 'Routine', title, is_daily_routine: true, assigned_to: 'Tutti',
-                                     estimated_time: '30m', status: 'Da fare', sort_order: n }));
-    render(); toast('Routine aggiunta');
-  } catch (e) { toast('Non aggiunta: ' + (e.message || e), true); }
-}
-
 /* ==========================================================================
-   SHEET: dettaglio, modifica, eliminazione
+   SHEET: un solo form per creare e per modificare
    ========================================================================== */
-function openSheet(id) {
+function openNew(kind, dueDate) {
+  sheetMode = 'new'; sheetId = null; sheetKind = kind;
+  photo.sheet = null;
+  form = {
+    title: '', category: 'Animali', estimated_time: '30m', assigned_to: me,
+    priority: 'Media', status: 'Da fare', due_date: dueDate || '', notes: '', extra: false
+  };
+  buildSheet(); apriSheet();
+}
+
+function openEdit(id) {
   const t = tasks.find((x) => x.id === id); if (!t) return;
-  sheetId = id;
-  const isLavoro = t.kind === 'Lavoro', isRoutine = t.kind === 'Routine';
-  $('#sheet-title').textContent = isRoutine ? 'Routine' : isLavoro ? 'Attività' : 'Nota';
-  const foto = photo.sheet ? photo.sheet.dataUrl : t.photo_url;
-
-  $('#sheet-body').innerHTML = `
-    <div>
-      <span class="lbl">Titolo</span>
-      <input id="sh-title" class="field mt-1.5" value="${esc(t.title)}" maxlength="140">
-    </div>
-    ${isLavoro || isRoutine ? `
-      <div><span class="lbl">Cosa</span><div id="sh-category" class="flex gap-2 mt-1.5 overflow-x-auto no-sb"></div></div>
-      <div><span class="lbl">Tempo</span><div id="sh-time" class="flex gap-2 mt-1.5"></div></div>
-      <div><span class="lbl">Chi</span><div id="sh-who" class="flex gap-2 mt-1.5"></div></div>` : ''}
-    ${isLavoro ? `
-      <div><span class="lbl">Priorità</span><div id="sh-priority" class="flex gap-2 mt-1.5"></div></div>
-      <div><span class="lbl">Scadenza</span><input id="sh-due" type="date" class="field mt-1.5" value="${esc(t.due_date || '')}"></div>
-      <div><span class="lbl">Stato</span><div id="sh-status" class="flex gap-2 mt-1.5"></div></div>` : ''}
-    <div>
-      <span class="lbl">Note</span>
-      <textarea id="sh-notes" rows="3" class="field mt-1.5">${esc(t.notes || '')}</textarea>
-    </div>
-    <div>
-      <span class="lbl">Foto</span>
-      ${foto ? `<img src="${esc(foto)}" class="thumb mt-1.5" alt="Foto" data-lb="${esc(foto)}">` : ''}
-      <div class="flex gap-2 mt-2">
-        <button type="button" class="btn btn-ghost flex-1" data-photo-pick="sheet">📷 ${foto ? 'Cambia' : 'Aggiungi'} foto</button>
-        ${foto ? `<button type="button" class="btn btn-danger" data-act="sh-photo-del">🗑</button>` : ''}
-      </div>
-    </div>
-    <button class="btn btn-primary btn-wide" data-act="sh-save">💾 Salva modifiche</button>
-    <button class="btn btn-danger btn-wide" data-act="sh-del">🗑 Elimina</button>`;
-
-  const d = { category: t.category || 'Altro', estimated_time: t.estimated_time || '30m',
-              assigned_to: t.assigned_to || 'Io', priority: t.priority || 'Media', status: t.status || 'Da fare' };
-  $('#sheet-body').dataset.d = JSON.stringify(d);
-  if (isLavoro || isRoutine) {
-    chips('#sh-category', CATEGORIES, d.category, 'data-sh', 'category', '');
-    chips('#sh-time', TIMES, d.estimated_time, 'data-sh', 'estimated_time');
-    chips('#sh-who', WHO, d.assigned_to, 'data-sh', 'assigned_to');
-  }
-  if (isLavoro) {
-    chips('#sh-priority', PRIORITY, d.priority, 'data-sh', 'priority');
-    chips('#sh-status', ['Da fare', 'In corso', 'Completato'], d.status, 'data-sh', 'status');
-  }
-  $('#sheet').hidden = false;
-  document.body.style.overflow = 'hidden';
+  sheetMode = 'edit'; sheetId = id; sheetKind = t.kind || 'Lavoro';
+  photo.sheet = null;
+  form = {
+    title: t.title || '', category: t.category || 'Altro', estimated_time: t.estimated_time || '30m',
+    assigned_to: t.assigned_to || 'Io', priority: t.priority || 'Media', status: t.status || 'Da fare',
+    due_date: t.due_date || '', notes: t.notes || '', photo_url: t.photo_url || null, extra: true
+  };
+  buildSheet(); apriSheet();
 }
 
+function apriSheet() { $('#sheet').hidden = false; document.body.style.overflow = 'hidden'; }
 function closeSheet() {
-  $('#sheet').hidden = true; document.body.style.overflow = ''; sheetId = null; photo.sheet = null;
+  $('#sheet').hidden = true; document.body.style.overflow = '';
+  sheetMode = null; sheetId = null; photo.sheet = null;
 }
 
-async function saveSheet() {
-  const t = tasks.find((x) => x.id === sheetId); if (!t) return;
-  const d = JSON.parse($('#sheet-body').dataset.d || '{}');
-  const p = { title: $('#sh-title').value.trim() || t.title, notes: $('#sh-notes').value.trim() || null };
-  if (t.kind === 'Lavoro' || t.kind === 'Routine') {
-    p.category = d.category; p.estimated_time = d.estimated_time; p.assigned_to = d.assigned_to;
+function buildSheet() {
+  if (sheetMode === 'settings') return buildSettings();
+  const nuovo = sheetMode === 'new';
+  const k = sheetKind;
+  const isLav = k === 'Lavoro', isRot = k === 'Routine', isNota = k === 'Nota', isSpesa = k === 'Spesa';
+
+  $('#sheet-title').textContent = nuovo
+    ? (isNota ? 'Nuova nota' : isSpesa ? 'Aggiungi alla spesa' : isRot ? 'Nuova routine' : 'Nuova attività')
+    : (isNota ? 'Nota' : isSpesa ? 'Articolo' : isRot ? 'Routine giornaliera' : 'Attività');
+
+  const foto = photo.sheet ? photo.sheet.dataUrl : form.photo_url;
+
+  let h = `<div>
+      <label class="lbl" for="f-title">${isNota ? 'Cosa annoti' : isSpesa ? 'Cosa serve' : 'Cosa c\'è da fare'}</label>
+      <input id="f-title" class="field mt-1.5" maxlength="140" autocomplete="off"
+             value="${esc(form.title)}" placeholder="${isNota ? 'Es. Vacca 12 — zoppia zampa dx' : isSpesa ? 'Es. Mangime 25 kg' : isRot ? 'Es. Cibo animali' : 'Es. Riparare recinto pascolo sud'}">
+    </div>`;
+
+  if (isSpesa) {
+    h += `<button class="btn btn-primary btn-wide" data-act="save">${nuovo ? '＋ Aggiungi alla lista' : '💾 Salva'}</button>`;
+    if (!nuovo) h += `<button class="btn btn-danger btn-wide" data-act="del-sheet">🗑 Elimina</button>`;
+    $('#sheet-body').innerHTML = h;
+    return;
   }
-  if (t.kind === 'Lavoro') {
-    p.priority = d.priority;
-    p.due_date = $('#sh-due').value || null;
-    p.status = d.status;
-    p.completed_at = d.status === 'Completato' ? (t.completed_at || new Date().toISOString()) : null;
+
+  if (isLav || isRot) {
+    h += `<div><span class="lbl">Cosa</span><div class="flex flex-wrap gap-2 mt-1.5">${chipRow(CATEGORIES, form.category, 'category', '')}</div></div>
+          <div><span class="lbl">Tempo</span><div class="flex gap-2 mt-1.5">${chipRow(TIMES, form.estimated_time, 'estimated_time')}</div></div>
+          <div><span class="lbl">Chi lo fa</span><div class="flex gap-2 mt-1.5">${chipRow(WHO, form.assigned_to, 'assigned_to')}</div></div>`;
   }
+
+  if (isLav) {
+    if (nuovo && !form.extra) {
+      h += `<button type="button" class="btn btn-ghost btn-sm w-full" data-act="extra">＋ Altro (data, priorità, foto, note)</button>`;
+    } else {
+      h += `<div><span class="lbl">Scadenza</span>
+              <div class="flex gap-2 mt-1.5 overflow-x-auto no-sb">
+                ${[['Oggi', TODAY], ['Domani', plusDays(1)], ['Fra 3 gg', plusDays(3)], ['Nessuna', '']]
+                  .map(([l, v]) => `<button type="button" class="chip flex-1" aria-pressed="${form.due_date === v}" data-set="due_date" data-value="${v}">${l}</button>`).join('')}
+              </div>
+              <input id="f-due" type="date" class="field mt-2" value="${esc(form.due_date)}">
+            </div>
+            <div><span class="lbl">Priorità</span><div class="flex gap-2 mt-1.5">${chipRow(PRIORITY, form.priority, 'priority')}</div></div>`;
+      if (!nuovo) h += `<div><span class="lbl">Stato</span><div class="flex gap-2 mt-1.5">${chipRow(STATI, form.status, 'status')}</div></div>`;
+    }
+  }
+
+  if (isLav ? (form.extra || !nuovo) : true) {
+    h += `<div><label class="lbl" for="f-notes">Note</label>
+            <textarea id="f-notes" rows="3" class="field mt-1.5" placeholder="Dettagli (opzionale)">${esc(form.notes)}</textarea></div>
+          <div><span class="lbl">Foto</span>
+            ${foto ? `<img src="${esc(foto)}" class="thumb mt-1.5" alt="Foto" data-lb="${esc(foto)}">` : ''}
+            <div class="flex gap-2 mt-2">
+              <button type="button" class="btn btn-ghost flex-1" data-act="pick-photo">📷 ${foto ? 'Cambia' : 'Scatta o scegli'} foto</button>
+              ${foto ? '<button type="button" class="btn btn-danger" data-act="clear-photo">🗑</button>' : ''}
+            </div></div>`;
+  }
+
+  h += `<button class="btn btn-primary btn-wide" data-act="save">${nuovo ? '＋ Aggiungi' : '💾 Salva modifiche'}</button>`;
+  if (!nuovo) h += `<button class="btn btn-danger btn-wide" data-act="del-sheet">🗑 Elimina</button>`;
+  if (!nuovo && isRot) h += `<p class="text-xs font-semibold text-center" style="color:var(--ink-2)">
+      Le routine tornano “da fare” ogni giorno. Non hanno scadenza.</p>`;
+
+  $('#sheet-body').innerHTML = h;
+}
+
+// tiene aggiornato `form` con quello che è stato scritto nei campi liberi
+function leggiCampi() {
+  const t = $('#f-title'); if (t) form.title = t.value;
+  const n = $('#f-notes'); if (n) form.notes = n.value;
+  const d = $('#f-due');   if (d) form.due_date = d.value;
+}
+
+async function salvaSheet() {
+  leggiCampi();
+  const titolo = (form.title || '').trim();
+  if (!titolo) { toast('Scrivi prima cosa serve', true); const e = $('#f-title'); if (e) e.focus(); return; }
+  const btn = $('[data-act="save"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvo…'; }
+
+  const k = sheetKind;
+  const row = { title: titolo, notes: (form.notes || '').trim() || null };
+  if (k === 'Lavoro' || k === 'Routine') {
+    row.category = form.category; row.estimated_time = form.estimated_time; row.assigned_to = form.assigned_to;
+  }
+  if (k === 'Lavoro') {
+    row.priority = form.priority;
+    row.due_date = form.due_date || null;
+    row.status = form.status;
+    row.completed_at = form.status === 'Completato' ? (new Date()).toISOString() : null;
+  }
+  if (k === 'Nota')  { row.assigned_to = me; }
+  if (k === 'Spesa') { row.assigned_to = 'Tutti'; }
+
   try {
-    if (photo.sheet) p.photo_url = await store.uploadPhoto(photo.sheet.blob, photo.sheet.dataUrl);
-    upsertLocal(await store.update(sheetId, p));
-    closeSheet(); render(); toast('Modifiche salvate');
-  } catch (e) { toast('Non salvato: ' + (e.message || e), true); }
+    if (photo.sheet) row.photo_url = await store.uploadPhoto(photo.sheet.blob, photo.sheet.dataUrl);
+    if (sheetMode === 'new') {
+      row.kind = k;
+      row.status = row.status || 'Da fare';
+      if (k === 'Routine') { row.is_daily_routine = true; row.sort_order = routines().length + 1; }
+      upsertLocal(await store.insert(row));
+      // nella spesa resto nel form per aggiungerne altri di fila
+      if (k === 'Spesa') {
+        form.title = ''; buildSheet(); render();
+        const e = $('#f-title'); if (e) e.focus();
+        toast('Aggiunto alla lista'); return;
+      }
+      closeSheet(); render(); toast(k === 'Nota' ? 'Nota salvata' : 'Aggiunto');
+    } else {
+      if (sheetKind === 'Lavoro' && form.status !== 'Completato') row.completed_at = null;
+      upsertLocal(await store.update(sheetId, row));
+      closeSheet(); render(); toast('Modifiche salvate');
+    }
+  } catch (e) {
+    toast('Non salvato: ' + (e.message || e), true);
+    if (btn) { btn.disabled = false; buildSheet(); }
+  }
 }
 
 /* ==========================================================================
    IMPOSTAZIONI
    ========================================================================== */
-function openSettings() {
-  sheetId = null;
+function openSettings() { sheetMode = 'settings'; buildSettings(); apriSheet(); }
+function buildSettings() {
   $('#sheet-title').textContent = 'Impostazioni';
   const rt = routines();
   $('#sheet-body').innerHTML = `
-    <div>
-      <span class="lbl">Chi sta usando l'app</span>
-      <p class="text-sm font-semibold mt-1" style="color:var(--ink-2)">Serve al filtro “Solo i miei” nella sezione Lavori.</p>
+    <div><span class="lbl">Chi sta usando l'app</span>
+      <p class="text-sm font-semibold mt-1" style="color:var(--ink-2)">Serve al filtro “Solo i miei” e come valore predefinito nelle nuove attività.</p>
       <div class="flex gap-2 mt-2">
         <button class="chip flex-1" data-me="Io"   aria-pressed="${me === 'Io'}">Io</button>
         <button class="chip flex-1" data-me="Anna" aria-pressed="${me === 'Anna'}">Anna</button>
       </div>
     </div>
-    <div>
-      <span class="lbl">Collegamento</span>
-      <p class="mt-1 font-bold">${CONFIGURED ? 'Database Supabase' : 'Solo questo dispositivo (Supabase non configurato)'}</p>
+    <div><span class="lbl">Collegamento</span>
+      <p class="mt-1 font-bold">${CONFIGURED ? 'Database Supabase' : 'Solo questo dispositivo'}</p>
       <p class="text-sm font-semibold" style="color:var(--ink-2)">Stato: ${esc($('#conn').textContent)}</p>
     </div>
-    <div>
-      <span class="lbl">Routine giornaliere (${rt.length})</span>
+    <div><span class="lbl">Routine giornaliere (${rt.length})</span>
+      <p class="text-sm font-semibold mt-1" style="color:var(--ink-2)">Tocca il nome per modificarla. Si possono modificare anche dalla sezione Oggi.</p>
       <div class="space-y-2 mt-2">
         ${rt.map((t) => `<div class="card flex items-center gap-2">
-            <span class="flex-1 font-bold">${esc(t.title)}</span>
-            <button class="btn btn-danger btn-sm" data-act="del-routine" data-id="${t.id}">🗑</button>
-          </div>`).join('') || '<p class="text-sm font-semibold">Nessuna.</p>'}
+            <button type="button" class="flex-1 text-left" data-open="${t.id}">
+              <span class="block font-bold">${esc(t.title)} <span style="color:var(--ink-2)">›</span></span>
+              <span class="block text-xs font-semibold mt-0.5" style="color:var(--ink-2)">${esc(t.assigned_to)}${t.estimated_time ? ' · ' + esc(t.estimated_time) : ''}</span>
+            </button>
+            <button class="btn btn-danger btn-sm" data-act="del" data-id="${t.id}">🗑</button>
+          </div>`).join('') || '<p class="text-sm font-semibold">Nessuna routine.</p>'}
       </div>
+      <button class="btn btn-ghost w-full mt-2" data-act="new-routine">＋ Nuova routine</button>
     </div>
     <button class="btn btn-ghost btn-wide" data-act="retry">🔄 Ricarica i dati</button>`;
-  $('#sheet').hidden = false;
-  document.body.style.overflow = 'hidden';
 }
 
 /* ==========================================================================
-   EVENTI (un solo gestore per tutti i tap)
+   EVENTI
    ========================================================================== */
 document.addEventListener('click', (ev) => {
-  const el = ev.target.closest('[data-act],[data-view],[data-open],[data-mine],[data-nl],[data-sh],[data-me],[data-lb],[data-photo-pick],[data-photo-clear],[data-qd]');
+  const el = ev.target.closest('[data-act],[data-view],[data-open],[data-mine],[data-set],[data-me],[data-lb],[data-cal]');
   if (!el) return;
 
-  // navigazione
-  if (el.dataset.view) { view = el.dataset.view; window.scrollTo({ top: 0 }); render(); return; }
-
-  // foto
-  if (el.dataset.photoPick) { photoTarget = el.dataset.photoPick; $('#photo-input').click(); return; }
-  if (el.dataset.photoClear) {
-    const k = el.dataset.photoClear; photo[k] = null;
-    $(`#${k}-photo-wrap`).hidden = true; return;
+  if (el.dataset.view) {
+    if (!$('#sheet').hidden) closeSheet();
+    view = el.dataset.view; window.scrollTo({ top: 0 }); render(); return;
   }
-  if (el.dataset.lb) {
-    $('#lightbox img').src = el.dataset.lb; $('#lightbox').hidden = false; return;
-  }
+  if (el.dataset.cal) { calSel = el.dataset.cal; render(); return; }
+  if (el.dataset.lb)  { $('#lightbox img').src = el.dataset.lb; $('#lightbox').hidden = false; return; }
+  if (el.dataset.mine) { mine = el.dataset.mine; render(); return; }
+  if (el.dataset.me)   { me = el.dataset.me; localStorage.setItem('fattoria_me', me); buildSettings(); render(); return; }
 
-  // chip del form rapido
-  if (el.dataset.nl) { draft[el.dataset.nl] = el.dataset.value; renderQuickChips(); return; }
-  if (el.hasAttribute('data-qd')) { $('#nl-due').value = el.dataset.qd; renderQuickChips(); return; }
-
-  // chip dello sheet
-  if (el.dataset.sh) {
-    const d = JSON.parse($('#sheet-body').dataset.d || '{}');
-    d[el.dataset.sh] = el.dataset.value;
-    $('#sheet-body').dataset.d = JSON.stringify(d);
-    el.parentElement.querySelectorAll('[data-sh]').forEach((b) => b.setAttribute('aria-pressed', b === el));
+  if (el.dataset.set) {                       // chip del form
+    leggiCampi();
+    form[el.dataset.set] = el.dataset.value;
+    buildSheet();
     return;
   }
-  if (el.dataset.me) { me = el.dataset.me; localStorage.setItem('fattoria_me', me); openSettings(); render(); return; }
-  if (el.dataset.mine) { mine = el.dataset.mine; render(); return; }
 
   const id = el.dataset.id;
   switch (el.dataset.act) {
-    case 'routine':      toggleRoutine(id); return;
-    case 'spesa':        toggleSpesa(id); return;
-    case 'del-spesa':    ev.stopPropagation(); removeTask(id); return;
+    case 'routine':  toggleRoutine(id); return;
+    case 'spesa':    toggleSpesa(id); return;
+    case 'start':    ev.stopPropagation(); patch(id, { status: 'In corso' }, '▶ In corso'); return;
+    case 'done':     ev.stopPropagation(); patch(id, { status: 'Completato', completed_at: new Date().toISOString() }, '✓ Completato'); return;
+    case 'del':      ev.stopPropagation(); removeTask(id).then(() => { if (sheetMode === 'settings') buildSettings(); }); return;
     case 'svuota-spesa': svuotaSpesa(); return;
-    case 'start':        ev.stopPropagation(); patch(id, { status: 'In corso' }, '▶ In corso'); return;
-    case 'done':         ev.stopPropagation(); patch(id, { status: 'Completato', completed_at: new Date().toISOString() }, '✓ Completato'); return;
-    case 'retry':        closeSheet(); loadFailed = false; reload(true); return;
-    case 'sh-save':      saveSheet(); return;
-    case 'sh-del':
+    case 'retry':    closeSheet(); loadFailed = false; reload(true); return;
+    case 'cal-prev': calM--; if (calM < 0) { calM = 11; calY--; } render(); return;
+    case 'cal-next': calM++; if (calM > 11) { calM = 0; calY++; } render(); return;
+    case 'cal-today': { const d = new Date(); calY = d.getFullYear(); calM = d.getMonth(); calSel = TODAY; render(); return; }
+    case 'new-per-giorno': openNew('Lavoro', calSel); return;
+    case 'new-routine': openNew('Routine'); return;
+    case 'extra':    leggiCampi(); form.extra = true; buildSheet(); return;
+    case 'pick-photo':  $('#photo-input').click(); return;
+    case 'clear-photo': leggiCampi(); photo.sheet = null; form.photo_url = null; buildSheet(); return;
+    case 'save':     salvaSheet(); return;
+    case 'del-sheet':
       if (el.dataset.armed !== '1') { el.dataset.armed = '1'; el.textContent = '⚠️ Tocca di nuovo per eliminare'; return; }
-      removeTask(sheetId); closeSheet(); return;
-    case 'sh-photo-del': patch(sheetId, { photo_url: null }); photo.sheet = null; openSheet(sheetId); return;
-    case 'del-routine':  removeTask(id).then(() => openSettings()); return;
+      { const x = sheetId; closeSheet(); removeTask(x); } return;
   }
 
-  if (el.dataset.open) openSheet(el.dataset.open);
+  if (el.dataset.open) openEdit(el.dataset.open);
 });
 
-document.addEventListener('submit', (ev) => {
-  if (ev.target.id === 'form-lavoro')  return creaLavoro(ev);
-  if (ev.target.id === 'form-nota')    return creaNota(ev);
-  if (ev.target.id === 'form-spesa')   return creaSpesa(ev);
-  if (ev.target.id === 'form-routine') return creaRoutine(ev);
+$('#fab').addEventListener('click', () => {
+  if (view === 'registro') openNew('Nota');
+  else if (view === 'spesa') openNew('Spesa');
+  else if (view === 'calendario') openNew('Lavoro', calSel);
+  else openNew('Lavoro');
 });
-
-function renderQuickChips() {
-  chips('#nl-category', CATEGORIES, draft.category, 'data-nl', 'category', '');
-  chips('#nl-time', TIMES, draft.estimated_time, 'data-nl', 'estimated_time');
-  chips('#nl-who', WHO, draft.assigned_to, 'data-nl', 'assigned_to');
-  chips('#nl-priority', PRIORITY, draft.priority, 'data-nl', 'priority');
-  const cur = $('#nl-due').value;
-  $('#nl-quickdate').innerHTML = [['Oggi', TODAY], ['Domani', plusDays(1)], ['Fra 3 gg', plusDays(3)], ['Nessuna', '']]
-    .map(([lab, val]) => `<button type="button" class="chip flex-1" aria-pressed="${cur === val}" data-qd="${val}">${lab}</button>`).join('');
-}
-
-$('#nl-more').addEventListener('click', () => {
-  const x = $('#nl-extra'); x.hidden = !x.hidden;
-  $('#nl-more').textContent = x.hidden ? '＋ Altro (data, priorità, foto, note)' : '− Chiudi extra';
-});
-$('#nl-due').addEventListener('change', renderQuickChips);
 $('#btn-settings').addEventListener('click', openSettings);
 $('#btn-me').addEventListener('click', openSettings);
 $('#sheet-close').addEventListener('click', closeSheet);
@@ -1142,6 +1030,7 @@ document.addEventListener('keydown', (e) => {
   if (!$('#lightbox').hidden) $('#lightbox').hidden = true;
   else if (!$('#sheet').hidden) closeSheet();
 });
+document.addEventListener('change', (e) => { if (e.target.id === 'f-due') { form.due_date = e.target.value; buildSheet(); } });
 
 /* ==========================================================================
    REALTIME
@@ -1152,9 +1041,7 @@ function startRealtime() {
       if (payload.eventType === 'DELETE') {
         const id = payload.old && payload.old.id;
         if (id) tasks = tasks.filter((t) => t.id !== id);
-      } else if (payload.new) {
-        upsertLocal(payload.new);
-      }
+      } else if (payload.new) upsertLocal(payload.new);
       if (loadFailed) { loadFailed = false; reload(false); return; }
       render();
     })
@@ -1173,21 +1060,16 @@ async function reload(showToast) {
   try {
     const data = await store.load();
     if (mia !== reloadSeq) return;
-    tasks = data; loadFailed = false;
-    render();
+    tasks = data; loadFailed = false; render();
     if (showToast) toast('Dati aggiornati');
   } catch (e) {
     if (mia !== reloadSeq) return;
-    loadFailed = true;
-    showLoadError(e);
+    loadFailed = true; showLoadError(e);
     toast('Dati non caricati: ' + (e.message || e), true);
   }
 }
 
-// Le routine si azzerano a mezzanotte: se l'app resta aperta tutta la notte
-// bisogna ricalcolare, altrimenti resterebbero spuntate anche il giorno dopo.
 setInterval(() => { if (iso(new Date()) !== TODAY) location.reload(); }, 60000);
-
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
   if (iso(new Date()) !== TODAY) { location.reload(); return; }
@@ -1206,13 +1088,11 @@ function installIcon() {
     x.fillText('🚜', 96, 104);
     icon = c.toDataURL('image/png');
   } catch (e) {}
-  if (icon) {
-    for (const rel of ['apple-touch-icon', 'icon']) {
-      const l = document.createElement('link'); l.rel = rel; l.href = icon; document.head.appendChild(l);
-    }
+  if (icon) for (const rel of ['apple-touch-icon', 'icon']) {
+    const l = document.createElement('link'); l.rel = rel; l.href = icon; document.head.appendChild(l);
   }
   const man = { name: 'Fattoria Tasks', short_name: 'Fattoria', start_url: './', display: 'standalone',
-                orientation: 'portrait', background_color: '#EFE7D6', theme_color: '#8FA583',
+                orientation: 'portrait', background_color: '#E6D8BC', theme_color: '#8FA583',
                 icons: icon ? [{ src: icon, sizes: '192x192', type: 'image/png', purpose: 'any' }] : [] };
   const l = document.createElement('link');
   l.rel = 'manifest'; l.href = 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(man));
@@ -1221,7 +1101,7 @@ function installIcon() {
 
 (async function init() {
   installIcon();
-  renderQuickChips();
+  const d = new Date(); calY = d.getFullYear(); calM = d.getMonth(); calSel = TODAY;
   $('#btn-me').textContent = me === 'Anna' ? 'A' : 'I';
 
   if (CONFIGURED && window.supabase) {
@@ -1235,8 +1115,8 @@ function installIcon() {
     setConn('● Locale', '#F6D98A');
     $('#local-banner').hidden = false;
     $('#local-banner').innerHTML = CONFIGURED
-      ? 'Libreria Supabase non caricata (serve internet). Sto usando i dati salvati su questo dispositivo.'
-      : '<b>Modalità locale.</b> Supabase non è configurato: i dati restano su questo dispositivo, le foto non vengono caricate online e non c\'è sincronizzazione.';
+      ? 'Libreria Supabase non caricata (serve internet). Sto usando i dati di questo dispositivo.'
+      : '<b>Modalità locale.</b> Supabase non è configurato: i dati restano su questo dispositivo e non si sincronizzano.';
     await reload(false);
   }
 })();
