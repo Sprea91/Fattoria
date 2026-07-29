@@ -1,908 +1,1245 @@
 <!--
   ============================================================================
-  FATTORIA — Gestione attività  (Single Page PWA, file unico)
+  FATTORIA TASKS — v2  (Single Page PWA, file unico)
   ============================================================================
-  COSA DEVI FARE PER FARLA FUNZIONARE (3 passi):
+  5 sezioni: Oggi · Lavori · Registro · Spesa · Storico
+  + routine giornaliere che ogni giorno tornano "da fare"
+  + foto scattate dal telefono (Supabase Storage)
 
-  1) Vai su https://supabase.com → crea un progetto gratuito.
-  2) Apri "SQL Editor" e incolla/esegui TUTTO lo script SQL che trovi qui
-     sotto nel blocco "SCHEMA.SQL".
-  3) Vai su "Project Settings → API", copia "Project URL" e la chiave
-     "anon public" e incollale più in basso in questo file, nelle due righe:
-        const SUPABASE_URL      = '...'
-        const SUPABASE_ANON_KEY = '...'
-     (cerca "CONFIGURAZIONE SUPABASE" nello script JS in fondo al file)
-
-  Finché non le inserisci, l'app funziona in MODALITÀ LOCALE (i dati restano
-  solo su questo telefono/PC, nel localStorage del browser) così puoi provarla.
+  ATTENZIONE: questa versione usa colonne NUOVE nel database.
+  Devi eseguire una volta lo script "schema-v2.sql" nell'SQL Editor di
+  Supabase (lo trovi nella stessa cartella di questo file, oppure ricopiato
+  qui sotto tra "-- INIZIO" e "-- FINE").
 
   ============================================================================
-  SCHEMA.SQL  →  copia da "-- INIZIO" a "-- FINE" nell'SQL Editor di Supabase
-  ============================================================================
-
 -- INIZIO ---------------------------------------------------------------------
 
--- Serve per gen_random_uuid() (su Supabase è già attiva, la riga non fa danni)
 create extension if not exists "pgcrypto";
 
--- 1) TABELLA
-create table if not exists public.tasks (
-  id             uuid        primary key default gen_random_uuid(),
-  title          text        not null,
-  category       text        not null default 'Animali',
-  priority       text        not null default 'Media',
-  assigned_to    text        not null default 'Io',
-  due_date       date,
-  estimated_time text,
-  status         text        not null default 'Da fare',
-  notes          text,
-  created_at     timestamptz not null default now()
+-- 1) TABELLA (ricreata da zero: la vecchia versione non serve più)
+drop table if exists public.tasks cascade;
+
+create table public.tasks (
+  id               uuid        primary key default gen_random_uuid(),
+  kind             text        not null default 'Lavoro',   -- Routine | Lavoro | Nota | Spesa
+  title            text        not null,
+  category         text,                                    -- Animali | Recinti | Macchine | Altro
+  priority         text        not null default 'Media',    -- Alta | Media | Bassa
+  assigned_to      text        not null default 'Io',       -- Io | Anna | Tutti
+  due_date         date,
+  estimated_time   text,                                    -- 30m | 1h | 2h+
+  status           text        not null default 'Da fare',  -- Da fare | In corso | Completato
+  notes            text,
+  photo_url        text,
+  is_daily_routine boolean     not null default false,
+  last_done_date   date,                                    -- ultimo giorno in cui la routine è stata spuntata
+  completed_at     timestamptz,                             -- data/ora di completamento (per lo Storico)
+  created_at       timestamptz not null default now(),
+  sort_order       int         not null default 0
 );
 
--- Indici per ordinamenti/filtri veloci
-create index if not exists tasks_due_date_idx on public.tasks (due_date);
-create index if not exists tasks_status_idx   on public.tasks (status);
+create index tasks_kind_idx      on public.tasks (kind);
+create index tasks_due_date_idx  on public.tasks (due_date);
+create index tasks_completed_idx on public.tasks (completed_at desc);
 
--- 2) SICUREZZA (accesso aperto: chiunque abbia il link e la chiave anon
---    può leggere e scrivere. Va bene per uso familiare/privato.)
+-- 2) SICUREZZA (accesso aperto: uso familiare senza login)
 alter table public.tasks enable row level security;
+create policy "tasks_all_select" on public.tasks for select using (true);
+create policy "tasks_all_insert" on public.tasks for insert with check (true);
+create policy "tasks_all_update" on public.tasks for update using (true) with check (true);
+create policy "tasks_all_delete" on public.tasks for delete using (true);
 
-drop policy if exists "tasks_select_all" on public.tasks;
-drop policy if exists "tasks_insert_all" on public.tasks;
-drop policy if exists "tasks_update_all" on public.tasks;
-drop policy if exists "tasks_delete_all" on public.tasks;
-
-create policy "tasks_select_all" on public.tasks for select using (true);
-create policy "tasks_insert_all" on public.tasks for insert with check (true);
-create policy "tasks_update_all" on public.tasks for update using (true) with check (true);
-create policy "tasks_delete_all" on public.tasks for delete using (true);
-
--- 3) REALTIME (sincronizzazione istantanea tra telefoni)
---    replica identity full serve per ricevere anche i dati delle DELETE.
+-- 3) REALTIME
 alter table public.tasks replica identity full;
-
-do $$
-begin
+do $$ begin
   alter publication supabase_realtime add table public.tasks;
-exception
-  when duplicate_object then null;   -- già pubblicata: ok
-end $$;
+exception when duplicate_object then null; end $$;
+
+-- 4) STORAGE per le foto (bucket pubblico "farm-photos")
+insert into storage.buckets (id, name, public)
+values ('farm-photos', 'farm-photos', true)
+on conflict (id) do update set public = true;
+
+drop policy if exists "farm_photos_read"   on storage.objects;
+drop policy if exists "farm_photos_write"  on storage.objects;
+drop policy if exists "farm_photos_delete" on storage.objects;
+
+create policy "farm_photos_read"   on storage.objects for select using (bucket_id = 'farm-photos');
+create policy "farm_photos_write"  on storage.objects for insert with check (bucket_id = 'farm-photos');
+create policy "farm_photos_delete" on storage.objects for delete using (bucket_id = 'farm-photos');
+
+-- 5) ROUTINE GIORNALIERE di partenza (modificabili e cancellabili dall'app)
+insert into public.tasks (kind, title, is_daily_routine, assigned_to, estimated_time, category, sort_order) values
+  ('Routine', 'Cibo animali',      true, 'Tutti', '30m', 'Animali', 1),
+  ('Routine', 'Acqua animali',     true, 'Tutti', '30m', 'Animali', 2),
+  ('Routine', 'Raccolta uova',     true, 'Anna',  '30m', 'Animali', 3),
+  ('Routine', 'Controllo recinti', true, 'Io',    '30m', 'Recinti', 4),
+  ('Routine', 'Mungitura',         true, 'Tutti', '1h',  'Animali', 5);
 
 -- FINE -----------------------------------------------------------------------
-
-  ============================================================================
-  PUBBLICAZIONE SU GITHUB PAGES
-  ============================================================================
-  1) Crea un repository su GitHub (consigliato: PRIVATO non funziona con
-     Pages nel piano free → se il repo è pubblico la chiave anon sarà visibile:
-     è accettabile solo perché i dati sono attività di fattoria).
-  2) Carica questo file con nome esatto: index.html
-  3) Settings → Pages → Source: "Deploy from a branch" → Branch: main / (root)
-  4) Dopo ~1 minuto l'app è online su https://TUONOME.github.io/NOMEREPO/
-  5) Sul telefono apri il link → Condividi/Menu → "Aggiungi alla schermata Home"
-
-  NOTA ONESTA SULL'OFFLINE: essendo un file unico non c'è un Service Worker
-  (tecnicamente deve stare in un file .js separato). Quindi serve la connessione
-  per aprire l'app. Se in futuro vuoi l'offline vero, chiedimi manifest.json + sw.js.
-  ============================================================================
 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5">
-<meta name="theme-color" content="#15803d">
+<meta name="theme-color" content="#8FA583">
 <meta name="color-scheme" content="light">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Fattoria">
-<title>Fattoria — Attività</title>
+<title>Fattoria Tasks</title>
 
 <script src="https://cdn.tailwindcss.com"></script>
-<script>
-  tailwind.config = { theme: { extend: { fontFamily: { sans: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'] } } } };
-</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 
 <style>
-  /* ---- Palette pensata per la LEGGIBILITÀ SOTTO IL SOLE ----
-     sfondo chiaro non bianco puro, testi quasi neri, badge a tinta piena. */
+  /* ---------------------------------------------------------------
+     Palette ripresa dal mockup (verde salvia + crema/legno),
+     con contrasti alzati per la leggibilità sotto il sole.
+     --------------------------------------------------------------- */
   :root {
-    --bg:      #eef1ec;
-    --surface: #ffffff;
-    --line:    #d5dbd3;
-    --ink:     #14171a;
-    --ink-2:   #4b5563;
-    --brand:   #15803d;
+    --sage:      #8FA583;   /* header */
+    --sage-dark: #6E8663;
+    --cream:     #EFE7D6;   /* sfondo pagina */
+    --card:      #FBF7EC;   /* schede */
+    --line:      #DFD4BC;
+    --ink:       #1E2418;   /* testo principale (quasi nero) */
+    --ink-2:     #4A5340;
+    --brand:     #2F6B33;   /* verde azione */
+    --brand-2:   #245227;
+    --chip:      #E2EADB;
+    --chip-ink:  #24401F;
+    --danger:    #B3261E;
   }
+  * { -webkit-tap-highlight-color: transparent; }
   html { -webkit-text-size-adjust: 100%; }
   body {
-    background: var(--bg);
-    color: var(--ink);
+    margin: 0; background: var(--cream); color: var(--ink);
     font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-    -webkit-tap-highlight-color: transparent;
     overscroll-behavior-y: contain;
   }
-  /* niente zoom automatico su iOS quando si tocca un campo: min 16px */
-  input, select, textarea, button { font-size: 16px; font-family: inherit; }
+  input, select, textarea, button { font-size: 16px; font-family: inherit; color: var(--ink); }
 
   .no-sb { scrollbar-width: none; -ms-overflow-style: none; }
   .no-sb::-webkit-scrollbar { display: none; }
 
-  /* ---------- BADGE ---------- */
-  .badge {
-    display: inline-flex; align-items: center; gap: .25rem;
-    font-size: .75rem; font-weight: 800; line-height: 1;
-    padding: .38rem .5rem; border-radius: .5rem; white-space: nowrap;
-    letter-spacing: .01em;
-  }
-  .b-pri-Alta   { background: #c81e1e; color: #fff; }
-  .b-pri-Media  { background: #b45309; color: #fff; }
-  .b-pri-Bassa  { background: #475569; color: #fff; }
-
-  .b-time       { background: #e0e7ff; color: #312e81; border: 1px solid #c7d2fe; }
-  .b-cat        { background: #ecfdf5; color: #14532d; border: 1px solid #bbf7d0; }
-
-  .b-who-Io       { background: #dbeafe; color: #1e3a8a; border: 1px solid #bfdbfe; }
-  .b-who-Anna     { background: #fce7f3; color: #9d174d; border: 1px solid #fbcfe8; }
-  .b-who-Entrambi { background: #ede9fe; color: #5b21b6; border: 1px solid #ddd6fe; }
-
-  .b-late       { background: #7f1d1d; color: #fff; }
-  .b-today      { background: #92400e; color: #fff; }
-  .b-date       { background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }
-
-  /* ---------- SCHEDA TASK ---------- */
+  /* ---------------- schede ---------------- */
   .card {
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-left-width: 6px;
-    border-radius: 1rem;
-    box-shadow: 0 1px 2px rgba(0,0,0,.06);
-    padding: .875rem;
-    text-align: left; width: 100%;
-    transition: transform .08s ease;
+    background: var(--card); border: 1.5px solid var(--line);
+    border-radius: 1rem; padding: .85rem;
+    box-shadow: 0 1px 2px rgba(60,50,30,.07);
   }
-  .card:active { transform: scale(.985); }
-  .card.pri-Alta  { border-left-color: #c81e1e; }
-  .card.pri-Media { border-left-color: #d97706; }
-  .card.pri-Bassa { border-left-color: #94a3b8; }
-  .card.is-late   { background: #fff5f5; border-color: #fca5a5; }
-  .card.is-done   { background: #f6f8f6; }
-  .card.is-done .card-title { text-decoration: line-through; color: #6b7280; }
-  .card-title { font-size: 1.0625rem; font-weight: 800; line-height: 1.25; }
+  .card-hot  { background: #FFF3EF; border-color: #E9A08F; }
+  .card-done { background: #F2F1EA; }
 
-  /* ---------- BOTTONI AZIONE ---------- */
-  .act {
-    display: inline-flex; align-items: center; justify-content: center; gap: .35rem;
-    min-height: 46px; padding: 0 .9rem; border-radius: .75rem;
-    font-weight: 800; font-size: .9375rem; border: 2px solid transparent; flex: 1 1 0;
+  /* ---------------- titoli sezione ---------------- */
+  .h-sec {
+    display: flex; align-items: center; gap: .5rem;
+    font-size: 1.0625rem; font-weight: 900; letter-spacing: -.01em; margin-bottom: .6rem;
   }
-  .act-go   { background: #1d4ed8; color: #fff; }
-  .act-done { background: var(--brand); color: #fff; }
-  .act-back { background: #fff; color: #374151; border-color: var(--line); }
-  .act:active { filter: brightness(.92); }
+  .h-count {
+    font-size: .75rem; font-weight: 900; background: var(--chip); color: var(--chip-ink);
+    padding: .2rem .45rem; border-radius: .4rem; border: 1px solid var(--line);
+  }
 
-  /* ---------- CHIP (filtri e form) ---------- */
+  /* ---------------- badge ---------------- */
+  .badge {
+    display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap;
+    font-size: .75rem; font-weight: 800; line-height: 1;
+    padding: .35rem .5rem; border-radius: .5rem;
+    background: var(--chip); color: var(--chip-ink); border: 1px solid var(--line);
+  }
+  .badge-hot   { background: var(--danger); color: #fff; border-color: var(--danger); }
+  .badge-today { background: #8A4B10; color: #fff; border-color: #8A4B10; }
+  .badge-pri   { background: #C2410C; color: #fff; border-color: #C2410C; }
+  .badge-who   { background: #E7EDF7; color: #1D3A6B; border-color: #C8D6EA; }
+
+  /* ---------------- bottoni ---------------- */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+    min-height: 48px; padding: 0 1rem; border-radius: .8rem;
+    font-weight: 900; font-size: .9375rem; border: 2px solid transparent;
+  }
+  .btn:active { filter: brightness(.93); }
+  .btn-primary { background: var(--brand); color: #fff; }
+  .btn-ghost   { background: var(--card); color: var(--ink); border-color: var(--line); }
+  .btn-danger  { background: #FDEBEA; color: var(--danger); border-color: #E9B4B0; }
+  .btn-sm      { min-height: 42px; padding: 0 .8rem; font-size: .875rem; border-radius: .7rem; }
+  .btn-wide    { width: 100%; min-height: 54px; font-size: 1.0625rem; }
+
+  /* ---------------- chip di scelta ---------------- */
   .chip {
-    display: inline-flex; align-items: center; gap: .3rem;
-    min-height: 42px; padding: 0 .8rem; border-radius: .75rem;
-    background: #fff; color: #1f2937; border: 2px solid var(--line);
-    font-weight: 700; font-size: .875rem; white-space: nowrap;
+    display: inline-flex; align-items: center; justify-content: center; gap: .3rem;
+    min-height: 44px; padding: 0 .85rem; border-radius: .8rem;
+    background: var(--card); color: var(--ink); border: 2px solid var(--line);
+    font-weight: 800; font-size: .875rem; white-space: nowrap;
   }
   .chip[aria-pressed="true"] { background: var(--brand); color: #fff; border-color: var(--brand); }
-  .chip-lg { min-height: 50px; font-size: 1rem; }
 
-  /* ---------- CAMPI FORM ---------- */
+  /* ---------------- campi ---------------- */
   .field {
-    width: 100%; min-height: 50px; padding: .7rem .8rem;
-    background: #fff; border: 2px solid var(--line); border-radius: .75rem;
-    color: var(--ink); font-weight: 600;
+    width: 100%; min-height: 52px; padding: .75rem .9rem;
+    background: #fff; border: 2px solid var(--line); border-radius: .8rem;
+    font-weight: 700;
   }
-  .field:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px #15803d33; }
-  .lbl { font-size: .8125rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); }
+  .field::placeholder { color: #94907F; font-weight: 600; }
+  .field:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(47,107,51,.22); }
+  .lbl { font-size: .75rem; font-weight: 900; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); }
 
-  /* ---------- SHEET / MODALE ---------- */
-  #sheet[hidden] { display: none; }
+  /* ---------------- checklist routine ---------------- */
+  .rt {
+    display: flex; align-items: center; gap: .75rem; width: 100%;
+    background: var(--card); border: 1.5px solid var(--line);
+    border-radius: 1rem; padding: .8rem .85rem; text-align: left;
+  }
+  .rt:active { transform: scale(.99); }
+  .rt-box {
+    flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%;
+    border: 3px solid #B9AE93; display: grid; place-items: center;
+    font-size: 1.1rem; font-weight: 900; color: transparent;
+  }
+  .rt-on           { background: #EEF3EA; border-color: #BFCDB6; }
+  .rt-on .rt-box   { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .rt-on .rt-title { text-decoration: line-through; color: #6B7360; }
+  .rt-title        { display: block; font-weight: 800; font-size: 1rem; line-height: 1.2; }
+
+  /* ---------------- barra di navigazione in basso ---------------- */
+  #nav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    background: var(--card); border-top: 1.5px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .tab {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    padding: .5rem 0 .45rem; font-size: .625rem; font-weight: 800; color: var(--ink-2);
+    border-top: 3px solid transparent;
+  }
+  .tab .ic { font-size: 1.35rem; line-height: 1; }
+  .tab[aria-current="page"] { color: var(--brand-2); background: #E7EEE3; border-top-color: var(--brand); }
+
+  /* ---------------- foto ---------------- */
+  .thumb { width: 100%; max-height: 210px; object-fit: cover; border-radius: .8rem; border: 1.5px solid var(--line); display: block; }
+  #lightbox img { max-width: 100%; max-height: 88vh; object-fit: contain; border-radius: .5rem; }
+
   .sheet-panel { animation: up .22s cubic-bezier(.2,.8,.2,1); }
-  @keyframes up { from { transform: translateY(14px); opacity: .6 } to { transform: none; opacity: 1 } }
-
-  .safe-b { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  @keyframes up { from { transform: translateY(16px); opacity: .5 } to { transform: none; opacity: 1 } }
+  [hidden] { display: none !important; }
 </style>
 
-<body class="min-h-screen">
+<body>
 
-  <!-- ===================== HEADER ===================== -->
-  <header class="sticky top-0 z-30 bg-white/95 backdrop-blur border-b" style="border-color:var(--line)">
-    <div class="px-3 pt-3 pb-2 flex items-center gap-2">
-      <h1 class="text-xl font-black tracking-tight flex items-center gap-2">
-        <span>🐄</span><span>Fattoria</span>
-      </h1>
+<!-- ============================ HEADER ============================ -->
+<header class="sticky top-0 z-30" style="background:var(--sage);border-bottom:1.5px solid var(--sage-dark)">
+  <div class="flex items-center gap-2 px-3 py-2.5">
+    <h1 class="text-lg font-black flex items-center gap-1.5" style="color:#14200F">
+      <span>🚜</span><span>Fattoria Tasks</span>
+    </h1>
+    <span id="conn" class="badge" style="background:#ffffffcc">…</span>
+    <div class="ml-auto flex items-center gap-1.5">
+      <button id="btn-settings" class="w-10 h-10 rounded-xl grid place-items-center text-xl"
+              style="background:#ffffff99" aria-label="Impostazioni">⚙️</button>
+      <button id="btn-me" class="w-10 h-10 rounded-full grid place-items-center font-black text-white"
+              style="background:var(--brand)" aria-label="Chi sta usando l'app">I</button>
+    </div>
+  </div>
+</header>
 
-      <span id="conn" class="badge b-date ml-1">…</span>
+<!-- banner modalità locale -->
+<div id="local-banner" hidden class="mx-3 mt-3 rounded-xl border-2 border-amber-500 bg-amber-50 p-3 text-sm font-bold text-amber-900"></div>
 
-      <div class="ml-auto flex items-center gap-1.5">
-        <button id="btn-refresh" class="w-11 h-11 rounded-xl border-2 grid place-items-center text-lg"
-                style="border-color:var(--line)" aria-label="Aggiorna elenco">🔄</button>
+<!-- ============================ SEZIONI ============================ -->
+<main class="px-3 pt-3" style="padding-bottom:118px">
+
+  <!-- ---------- OGGI ---------- -->
+  <section id="view-oggi">
+    <div id="oggi-body" class="space-y-5">
+      <div class="text-center py-12">
+        <div class="text-5xl animate-pulse">🌾</div>
+        <p class="mt-3 font-black text-lg">Caricamento…</p>
       </div>
     </div>
-  </header>
-
-  <!-- ===================== FILTRI RAPIDI ===================== -->
-  <section class="px-3 pt-3 space-y-2" aria-label="Filtri rapidi">
-    <div id="f-status"   class="flex gap-2 overflow-x-auto no-sb pb-0.5"></div>
-    <div id="f-assignee" class="flex gap-2 overflow-x-auto no-sb pb-0.5"></div>
-    <div id="f-category" class="flex gap-2 overflow-x-auto no-sb pb-0.5"></div>
   </section>
 
-  <!-- ===================== BANNER MODALITÀ LOCALE ===================== -->
-  <div id="local-banner" hidden class="mx-3 mt-3 rounded-xl border-2 border-amber-400 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
-    <b>Modalità locale.</b> Supabase non è configurato: i dati restano solo su questo dispositivo
-    e non si sincronizzano. Inserisci <code>SUPABASE_URL</code> e <code>SUPABASE_ANON_KEY</code>
-    nel file <code>index.html</code>.
-  </div>
+  <!-- ---------- LAVORI ---------- -->
+  <section id="view-lavori" hidden class="space-y-5">
+    <!-- form rapido, come nel mockup -->
+    <div class="card">
+      <h2 class="h-sec">➕ Aggiungi attività</h2>
+      <form id="form-lavoro" class="space-y-3">
+        <input id="nl-title" class="field" placeholder="Nuova attività" maxlength="140" autocomplete="off" required>
 
-  <!-- ===================== CONTENUTO ===================== -->
-  <main id="board" class="px-3 pt-3 pb-40 space-y-5">
-    <!-- Stato iniziale: sostituito dal JS appena i dati arrivano. -->
-    <div class="text-center py-14 px-6">
-      <div class="text-5xl animate-pulse">🌾</div>
-      <p class="mt-3 font-extrabold text-lg">Caricamento…</p>
-      <p class="mt-1 text-sm font-semibold" style="color:#4b5563">Sto recuperando i lavori dal database.</p>
-    </div>
-  </main>
-
-  <!-- ===================== FAB NUOVA ATTIVITÀ ===================== -->
-  <button id="btn-new"
-          class="fixed z-30 right-4 bottom-5 h-16 pl-5 pr-6 rounded-full text-white font-black text-lg shadow-xl flex items-center gap-2"
-          style="background:var(--brand); margin-bottom: env(safe-area-inset-bottom,0px)">
-    <span class="text-2xl leading-none">＋</span> Nuovo
-  </button>
-
-  <!-- ===================== SHEET FORM ===================== -->
-  <div id="sheet" hidden class="fixed inset-0 z-40">
-    <div id="sheet-bg" class="absolute inset-0 bg-black/50"></div>
-
-    <div class="absolute inset-x-0 bottom-0 max-h-[94vh] flex flex-col sheet-panel bg-white rounded-t-3xl overflow-hidden">
-      <div class="flex items-center gap-2 px-4 py-3 border-b" style="border-color:var(--line)">
-        <h2 id="sheet-title" class="text-lg font-black">Nuova attività</h2>
-        <button id="btn-close" class="ml-auto w-11 h-11 rounded-xl border-2 grid place-items-center text-xl font-bold"
-                style="border-color:var(--line)" aria-label="Chiudi">✕</button>
-      </div>
-
-      <form id="form" class="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        <div>
-          <label class="lbl" for="f-title">Cosa c'è da fare</label>
-          <input id="f-title" name="title" class="field mt-1.5" required maxlength="140"
-                 placeholder="Es. Controllare recinto pascolo sud" autocomplete="off">
+        <div class="flex items-center gap-2">
+          <span class="lbl w-16 shrink-0">Cosa</span>
+          <div id="nl-category" class="flex flex-wrap gap-2 flex-1"></div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="lbl w-16 shrink-0">Tempo</span>
+          <div id="nl-time" class="flex gap-2 flex-1"></div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="lbl w-16 shrink-0">Chi</span>
+          <div id="nl-who" class="flex gap-2 flex-1"></div>
         </div>
 
-        <div>
-          <span class="lbl">Categoria</span>
-          <div id="c-category" class="mt-1.5 grid grid-cols-2 gap-2"></div>
+        <button type="button" id="nl-more" class="btn btn-ghost btn-sm w-full">＋ Altro (data, priorità, foto, note)</button>
+
+        <div id="nl-extra" hidden class="space-y-3 pt-1">
+          <div>
+            <span class="lbl">Priorità</span>
+            <div id="nl-priority" class="flex gap-2 mt-1.5"></div>
+          </div>
+          <div>
+            <span class="lbl">Scadenza</span>
+            <div id="nl-quickdate" class="flex gap-2 mt-1.5 overflow-x-auto no-sb"></div>
+            <input id="nl-due" type="date" class="field mt-2">
+          </div>
+          <textarea id="nl-notes" rows="2" class="field" placeholder="Note (opzionale)"></textarea>
+          <div>
+            <button type="button" class="btn btn-ghost w-full" data-photo-pick="nl">📷 Aggiungi foto</button>
+            <div id="nl-photo-wrap" hidden class="mt-2 relative">
+              <img id="nl-photo-img" class="thumb" alt="Foto scelta">
+              <button type="button" class="btn btn-danger btn-sm absolute top-2 right-2" data-photo-clear="nl">✕ Togli</button>
+            </div>
+          </div>
         </div>
 
-        <div>
-          <span class="lbl">Priorità</span>
-          <div id="c-priority" class="mt-1.5 flex gap-2"></div>
-        </div>
-
-        <div>
-          <span class="lbl">Chi lo fa</span>
-          <div id="c-assigned_to" class="mt-1.5 flex gap-2"></div>
-        </div>
-
-        <div>
-          <span class="lbl">Tempo necessario</span>
-          <div id="c-estimated_time" class="mt-1.5 flex gap-2 flex-wrap"></div>
-        </div>
-
-        <div>
-          <span class="lbl">Scadenza</span>
-          <div id="c-quickdate" class="mt-1.5 flex gap-2 overflow-x-auto no-sb pb-0.5"></div>
-          <input id="f-due" name="due_date" type="date" class="field mt-2">
-        </div>
-
-        <div id="wrap-status" hidden>
-          <span class="lbl">Stato</span>
-          <div id="c-status" class="mt-1.5 flex gap-2"></div>
-        </div>
-
-        <div>
-          <label class="lbl" for="f-notes">Note (opzionale)</label>
-          <textarea id="f-notes" name="notes" rows="3" class="field mt-1.5" placeholder="Dettagli, materiali, dove…"></textarea>
-        </div>
-
-        <button type="button" id="btn-delete" hidden
-                class="w-full min-h-[50px] rounded-xl border-2 border-red-300 bg-red-50 text-red-800 font-extrabold">
-          🗑 Elimina attività
-        </button>
+        <button type="submit" class="btn btn-primary btn-wide">＋ Aggiungi</button>
       </form>
-
-      <div class="px-4 py-3 border-t safe-b bg-white" style="border-color:var(--line)">
-        <button type="submit" form="form" id="btn-save"
-                class="w-full min-h-[56px] rounded-xl text-white font-black text-lg" style="background:var(--brand)">
-          Salva
-        </button>
-      </div>
     </div>
-  </div>
 
-  <!-- ===================== TOAST ===================== -->
-  <div id="toast" hidden class="fixed z-50 left-1/2 -translate-x-1/2 bottom-28 px-4 py-3 rounded-xl bg-slate-900 text-white font-bold text-sm shadow-xl max-w-[90vw] text-center"></div>
+    <div class="flex gap-2">
+      <button class="chip flex-1" data-mine="tutti">Tutti i lavori</button>
+      <button class="chip flex-1" data-mine="miei">Solo i miei</button>
+    </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-  <script>
-  'use strict';
-  /* ==========================================================================
-     CONFIGURAZIONE SUPABASE  ←←← INCOLLA QUI I TUOI DUE VALORI
-     ========================================================================== */
-  const SUPABASE_URL      = 'https://aiowitawkzyohycsxkxi.supabase.co';   // es. https://abcdefgh.supabase.co
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpb3dpdGF3a3p5b2h5Y3N4a3hpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzMjgwNjMsImV4cCI6MjEwMDkwNDA2M30.w2PA_VHPZc-2LQJHy__yK73XnxVwGDOwKyiYQN5klXE';      // chiave "anon public"
-  /* ========================================================================== */
+    <div id="lavori-body" class="space-y-5"></div>
+  </section>
 
-  const CONFIGURED = /^https:\/\/.+\.supabase\.co\/?$/.test(SUPABASE_URL.trim())
-                     && SUPABASE_ANON_KEY.trim().length > 40;
-
-  // ---------- Vocabolari (devono combaciare con i valori salvati sul DB) -----
-  const CATEGORIES = [
-    { v: 'Animali',            e: '🐑' },
-    { v: 'Recinti/Strutture',  e: '🚧' },
-    { v: 'Attrezzatura',       e: '🚜' },
-    { v: 'Manutenzione',       e: '🔧' }
-  ];
-  const PRIORITIES = ['Alta', 'Media', 'Bassa'];
-  const ASSIGNEES  = ['Io', 'Anna', 'Entrambi'];
-  const TIMES      = ['15m', '30m', '1h', '2h', '2h+'];
-  const STATUSES   = ['Da fare', 'In corso', 'Completato'];
-  const PRI_RANK   = { Alta: 0, Media: 1, Bassa: 2 };
-
-  const DEFAULTS = {
-    category: 'Animali', priority: 'Media', assigned_to: 'Io',
-    estimated_time: '30m', status: 'Da fare'
-  };
-
-  // ---------- Stato applicazione -------------------------------------------
-  let tasks      = [];
-  let loadFailed = false;             // true se il primo caricamento non è riuscito
-  let editing    = null;              // id del task in modifica, null = nuovo
-  let draft   = { ...DEFAULTS };      // valori dei chip nel form
-  const filters = { status: 'Tutti', assigned_to: 'Tutti', category: 'Tutte' };
-
-  const $  = (s) => document.querySelector(s);
-  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const catEmoji = (v) => (CATEGORIES.find((c) => c.v === v) || {}).e || '📌';
-
-  /* ==========================================================================
-     DATE (tutto in locale, formato ISO YYYY-MM-DD come la colonna `date`)
-     ========================================================================== */
-  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const TODAY = iso(new Date());
-  const plusDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
-
-  function daysFromToday(isoDate) {
-    if (!isoDate) return null;
-    const [y, m, d] = isoDate.split('-').map(Number);
-    const a = new Date(y, m - 1, d), b = new Date();
-    b.setHours(0, 0, 0, 0);
-    return Math.round((a - b) / 86400000);
-  }
-  function dateLabel(isoDate) {
-    const n = daysFromToday(isoDate);
-    if (n === null) return '';
-    if (n === 0) return 'Oggi';
-    if (n === 1) return 'Domani';
-    if (n === -1) return 'Ieri';
-    if (n < -1) return `${Math.abs(n)} gg in ritardo`;
-    const [y, m, d] = isoDate.split('-').map(Number);
-    return new Date(y, m - 1, d).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
-  }
-
-  /* ==========================================================================
-     LIVELLO DATI — due implementazioni con la stessa interfaccia:
-     Supabase (se configurato) oppure localStorage.
-     ========================================================================== */
-  let db = null, channel = null;
-  const LS_KEY = 'fattoria_tasks_v1';
-
-  const localStore = {
-    read()  { try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch { return []; } },
-    write(v) { localStorage.setItem(LS_KEY, JSON.stringify(v)); },
-    async load() { return this.read(); },
-    async insert(row) {
-      const t = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...row };
-      const all = this.read(); all.push(t); this.write(all); return t;
-    },
-    async update(id, patch) {
-      const all = this.read(); const i = all.findIndex((t) => t.id === id);
-      if (i < 0) throw new Error('Attività non trovata');
-      all[i] = { ...all[i], ...patch }; this.write(all); return all[i];
-    },
-    async remove(id) { this.write(this.read().filter((t) => t.id !== id)); }
-  };
-
-  const remoteStore = {
-    async load() {
-      const { data, error } = await db.from('tasks').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
-      return data || [];
-    },
-    async insert(row) {
-      const { data, error } = await db.from('tasks').insert(row).select().single();
-      if (error) throw error; return data;
-    },
-    async update(id, patch) {
-      const { data, error } = await db.from('tasks').update(patch).eq('id', id).select().single();
-      if (error) throw error; return data;
-    },
-    async remove(id) {
-      const { error } = await db.from('tasks').delete().eq('id', id);
-      if (error) throw error;
-    }
-  };
-
-  let store = localStore;
-
-  /* ==========================================================================
-     REALTIME — listener postgres_changes su INSERT / UPDATE / DELETE
-     ========================================================================== */
-  function setConn(text, cls) {
-    const el = $('#conn');
-    el.textContent = text;
-    el.className = 'badge ml-1 ' + cls;
-  }
-
-  function upsertLocal(row) {
-    const i = tasks.findIndex((t) => t.id === row.id);
-    if (i < 0) tasks.unshift(row); else tasks[i] = { ...tasks[i], ...row };
-  }
-
-  function startRealtime() {
-    channel = db.channel('tasks-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload) => {
-        if (payload.eventType === 'DELETE') {
-          const id = payload.old && payload.old.id;
-          if (id) tasks = tasks.filter((t) => t.id !== id);
-        } else if (payload.new) {
-          upsertLocal(payload.new);
-        }
-        // Se il primo caricamento era fallito ma ora arrivano eventi, la
-        // connessione è tornata: ricarichiamo tutto invece di mostrare
-        // soltanto il task appena modificato.
-        if (loadFailed) { reload(false); return; }
-        render();
-      })
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED')                             setConn('● Live', 'b-cat');
-        else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setConn('● Offline', 'b-late');
-        else                                                     setConn('● …', 'b-date');
-      });
-  }
-
-  /* ==========================================================================
-     FILTRI
-     ========================================================================== */
-  function renderFilters() {
-    const row = (host, key, values, allLabel) => {
-      const opts = [allLabel, ...values];
-      host.innerHTML = opts.map((v) => {
-        const on = filters[key] === v;
-        const label = (key === 'category' && v !== allLabel) ? `${catEmoji(v)} ${v}` : v;
-        return `<button type="button" class="chip" aria-pressed="${on}"
-                  data-filter="${key}" data-value="${esc(v)}">${esc(label)}</button>`;
-      }).join('');
-    };
-    row($('#f-status'),   'status',      STATUSES,                  'Tutti');
-    row($('#f-assignee'), 'assigned_to', ASSIGNEES,                 'Tutti');
-    row($('#f-category'), 'category',    CATEGORIES.map((c) => c.v), 'Tutte');
-  }
-
-  function visible() {
-    return tasks.filter((t) =>
-      (filters.status      === 'Tutti' || t.status      === filters.status) &&
-      (filters.assigned_to === 'Tutti' || t.assigned_to === filters.assigned_to) &&
-      (filters.category    === 'Tutte' || t.category    === filters.category)
-    );
-  }
-
-  const byUrgency = (a, b) => {
-    const da = a.due_date ? daysFromToday(a.due_date) : 9e5;
-    const dbb = b.due_date ? daysFromToday(b.due_date) : 9e5;
-    if (da !== dbb) return da - dbb;
-    const pa = PRI_RANK[a.priority] ?? 1, pb = PRI_RANK[b.priority] ?? 1;
-    if (pa !== pb) return pa - pb;
-    return String(b.created_at).localeCompare(String(a.created_at));
-  };
-
-  /* ==========================================================================
-     RENDER SCHEDE
-     ========================================================================== */
-  function badges(t) {
-    const out = [`<span class="badge b-pri-${esc(t.priority)}">${t.priority === 'Alta' ? '🔥 ' : ''}${esc(t.priority)}</span>`];
-    if (t.estimated_time) out.push(`<span class="badge b-time">⏱️ ${esc(t.estimated_time)}</span>`);
-    out.push(`<span class="badge b-who-${esc(t.assigned_to)}">👤 ${esc(t.assigned_to)}</span>`);
-    out.push(`<span class="badge b-cat">${catEmoji(t.category)} ${esc(t.category)}</span>`);
-
-    if (t.due_date) {
-      const n = daysFromToday(t.due_date);
-      const done = t.status === 'Completato';
-      const cls = done ? 'b-date' : n < 0 ? 'b-late' : n === 0 ? 'b-today' : 'b-date';
-      out.push(`<span class="badge ${cls}">📅 ${esc(dateLabel(t.due_date))}</span>`);
-    }
-    return out.join('');
-  }
-
-  function actions(t) {
-    if (t.status === 'Da fare') return `
-      <button class="act act-go"   data-act="status" data-to="In corso"   data-id="${t.id}">▶ Inizia</button>
-      <button class="act act-done" data-act="status" data-to="Completato" data-id="${t.id}">✓ Fatto</button>`;
-    if (t.status === 'In corso') return `
-      <button class="act act-done" data-act="status" data-to="Completato" data-id="${t.id}">✓ Fatto</button>
-      <button class="act act-back" data-act="status" data-to="Da fare"    data-id="${t.id}">↩ Sospendi</button>`;
-    return `
-      <button class="act act-back" data-act="status" data-to="Da fare"    data-id="${t.id}">↩ Riapri</button>`;
-  }
-
-  function cardHTML(t) {
-    const late = t.status !== 'Completato' && t.due_date && daysFromToday(t.due_date) < 0;
-    const cls  = ['card', `pri-${t.priority}`, late ? 'is-late' : '', t.status === 'Completato' ? 'is-done' : ''].join(' ');
-    return `
-      <article class="${cls}" data-act="edit" data-id="${t.id}" role="button" tabindex="0">
-        <div class="flex items-start gap-2">
-          <h3 class="card-title flex-1">${esc(t.title)}</h3>
-          <span class="text-slate-400 text-xl leading-none mt-0.5">›</span>
+  <!-- ---------- REGISTRO ---------- -->
+  <section id="view-registro" hidden class="space-y-5">
+    <div class="card">
+      <h2 class="h-sec">📓 Nuova nota</h2>
+      <form id="form-nota" class="space-y-3">
+        <input id="nn-title" class="field" placeholder="Es. Vacca 12 — zoppia zampa dx" maxlength="140" required autocomplete="off">
+        <textarea id="nn-notes" rows="3" class="field" placeholder="Dettagli (opzionale)"></textarea>
+        <button type="button" class="btn btn-ghost w-full" data-photo-pick="nn">📷 Scatta o scegli foto</button>
+        <div id="nn-photo-wrap" hidden class="relative">
+          <img id="nn-photo-img" class="thumb" alt="Foto scelta">
+          <button type="button" class="btn btn-danger btn-sm absolute top-2 right-2" data-photo-clear="nn">✕ Togli</button>
         </div>
-        <div class="flex flex-wrap gap-1.5 mt-2.5">${badges(t)}</div>
-        ${t.notes ? `<p class="mt-2 text-sm font-semibold line-clamp-2" style="color:#374151">${esc(t.notes)}</p>` : ''}
-        <div class="flex gap-2 mt-3">${actions(t)}</div>
-      </article>`;
-  }
+        <button type="submit" class="btn btn-primary btn-wide">Salva nota</button>
+      </form>
+    </div>
+    <div id="registro-body" class="space-y-3"></div>
+  </section>
 
-  function section(title, emoji, list, tone) {
-    if (!list.length) return '';
-    const toneCls = tone === 'hot' ? 'text-red-800' : tone === 'go' ? 'text-blue-800' : 'text-slate-800';
-    return `
-      <section>
-        <h2 class="flex items-center gap-2 mb-2 font-black text-base ${toneCls}">
-          <span>${emoji}</span><span>${title}</span>
-          <span class="badge b-date">${list.length}</span>
-        </h2>
-        <div class="space-y-2.5">${list.map(cardHTML).join('')}</div>
+  <!-- ---------- SPESA ---------- -->
+  <section id="view-spesa" hidden class="space-y-5">
+    <div class="card">
+      <h2 class="h-sec">🛒 Aggiungi alla lista</h2>
+      <form id="form-spesa" class="flex gap-2">
+        <input id="ns-title" class="field flex-1" placeholder="Es. Mangime 25 kg" maxlength="90" required autocomplete="off">
+        <button type="submit" class="btn btn-primary px-5">＋</button>
+      </form>
+    </div>
+    <div id="spesa-body" class="space-y-3"></div>
+  </section>
+
+  <!-- ---------- STORICO ---------- -->
+  <section id="view-storico" hidden class="space-y-3">
+    <div id="storico-body" class="space-y-3"></div>
+  </section>
+
+</main>
+
+<!-- ============================ NAV BASSO ============================ -->
+<nav id="nav" aria-label="Sezioni">
+  <button class="tab" data-view="oggi"     aria-current="page"><span class="ic">🚜</span>Oggi</button>
+  <button class="tab" data-view="lavori"><span class="ic">🔨</span>Lavori</button>
+  <button class="tab" data-view="registro"><span class="ic">📓</span>Registro</button>
+  <button class="tab" data-view="spesa"><span class="ic">🛒</span>Spesa</button>
+  <button class="tab" data-view="storico"><span class="ic">✅</span>Storico</button>
+</nav>
+
+<!-- ============================ SHEET DETTAGLIO/MODIFICA ============================ -->
+<div id="sheet" hidden class="fixed inset-0 z-50">
+  <div id="sheet-bg" class="absolute inset-0 bg-black/50"></div>
+  <div class="absolute inset-x-0 bottom-0 max-h-[94vh] flex flex-col sheet-panel rounded-t-3xl overflow-hidden" style="background:var(--cream)">
+    <div class="flex items-center gap-2 px-4 py-3" style="background:var(--sage)">
+      <h2 id="sheet-title" class="text-lg font-black" style="color:#14200F">Dettaglio</h2>
+      <button id="sheet-close" class="ml-auto w-10 h-10 rounded-xl grid place-items-center text-xl font-black" style="background:#ffffff99">✕</button>
+    </div>
+    <div id="sheet-body" class="flex-1 overflow-y-auto px-4 py-4 space-y-4"></div>
+  </div>
+</div>
+
+<!-- ============================ LIGHTBOX FOTO ============================ -->
+<div id="lightbox" hidden class="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-3">
+  <img alt="Foto ingrandita">
+  <button id="lb-close" class="absolute top-4 right-4 w-12 h-12 rounded-full bg-white/90 text-2xl font-black">✕</button>
+</div>
+
+<input id="photo-input" type="file" accept="image/*" capture="environment" hidden>
+
+<div id="toast" hidden class="fixed z-[70] left-1/2 -translate-x-1/2 bottom-24 px-4 py-3 rounded-xl text-white font-bold text-sm shadow-xl max-w-[92vw] text-center" style="background:#20281A"></div>
+
+<script>
+'use strict';
+/* ==========================================================================
+   CONFIGURAZIONE SUPABASE
+   ========================================================================== */
+const SUPABASE_URL      = 'https://aiowitawkzyohycsxkxi.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpb3dpdGF3a3p5b2h5Y3N4a3hpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzMjgwNjMsImV4cCI6MjEwMDkwNDA2M30.w2PA_VHPZc-2LQJHy__yK73XnxVwGDOwKyiYQN5klXE';
+const BUCKET = 'farm-photos';
+/* ========================================================================== */
+
+const CONFIGURED = /^https:\/\/[a-z0-9-]+\.supabase\.(co|in)\/?$/i.test(SUPABASE_URL.trim())
+                   && SUPABASE_ANON_KEY.trim().length > 20
+                   && !/^INCOLLA_QUI/.test(SUPABASE_ANON_KEY.trim());
+
+/* ---------- Vocabolari: pochi valori, scelte veloci ---------- */
+const CATEGORIES = [
+  { v: 'Animali',  e: '🐄' },
+  { v: 'Recinti',  e: '🚧' },
+  { v: 'Macchine', e: '🚜' },
+  { v: 'Altro',    e: '📌' }
+];
+const TIMES     = ['30m', '1h', '2h+'];
+const WHO       = ['Io', 'Anna', 'Tutti'];
+const PRIORITY  = ['Alta', 'Media', 'Bassa'];
+const catEmoji  = (v) => (CATEGORIES.find((c) => c.v === v) || {}).e || '📌';
+
+/* ---------- Stato ---------- */
+let tasks      = [];
+let view       = 'oggi';
+let mine       = 'tutti';                                  // filtro in Lavori
+let me         = localStorage.getItem('fattoria_me') || 'Io';
+let loadFailed = false;
+let reloadSeq  = 0;
+let sheetId    = null;
+
+const draft = { category: 'Animali', estimated_time: '30m', assigned_to: 'Io', priority: 'Media' };
+const photo = { nl: null, nn: null, sheet: null };          // { blob, dataUrl }
+
+const $  = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/* ==========================================================================
+   DATE
+   ========================================================================== */
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const TODAY = iso(new Date());
+const plusDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
+
+function daysFromToday(isoDate) {
+  if (!isoDate) return null;
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const a = new Date(y, m - 1, d), b = new Date(); b.setHours(0, 0, 0, 0);
+  return Math.round((a - b) / 86400000);
+}
+function dateLabel(isoDate) {
+  const n = daysFromToday(isoDate);
+  if (n === null) return '';
+  if (n === 0) return 'Oggi';
+  if (n === 1) return 'Domani';
+  if (n === -1) return 'Ieri';
+  if (n < -1) return `${Math.abs(n)} gg in ritardo`;
+  const [y, m, d] = isoDate.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+function stampLabel(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const giorno = iso(d) === TODAY ? 'Oggi' : iso(d) === plusDays(-1) ? 'Ieri'
+    : d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
+  return `${giorno} · ${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+/* ==========================================================================
+   LIVELLO DATI: Supabase oppure localStorage (per provare senza configurare)
+   ========================================================================== */
+let db = null, channel = null;
+const LS = 'fattoria_v2';
+
+const localStore = {
+  read()   { try { return JSON.parse(localStorage.getItem(LS)) || []; } catch { return []; } },
+  write(v) { try { localStorage.setItem(LS, JSON.stringify(v)); } catch (e) { toast('Memoria del browser piena', true); } },
+  async load() {
+    let all = this.read();
+    if (!all.length) {                     // prima apertura: routine di esempio
+      all = [
+        ['Cibo animali', 'Tutti', 'Animali'], ['Acqua animali', 'Tutti', 'Animali'],
+        ['Raccolta uova', 'Anna', 'Animali'], ['Controllo recinti', 'Io', 'Recinti'],
+        ['Mungitura', 'Tutti', 'Animali']
+      ].map((r, i) => ({
+        id: crypto.randomUUID(), kind: 'Routine', title: r[0], assigned_to: r[1], category: r[2],
+        is_daily_routine: true, estimated_time: '30m', priority: 'Media', status: 'Da fare',
+        sort_order: i + 1, created_at: new Date().toISOString()
+      }));
+      this.write(all);
+    }
+    return all;
+  },
+  async insert(row) {
+    const t = { id: crypto.randomUUID(), created_at: new Date().toISOString(), status: 'Da fare',
+                priority: 'Media', is_daily_routine: false, sort_order: 0, ...row };
+    const all = this.read(); all.push(t); this.write(all); return t;
+  },
+  async update(id, patch) {
+    const all = this.read(); const i = all.findIndex((t) => t.id === id);
+    if (i < 0) throw new Error('Non trovato'); all[i] = { ...all[i], ...patch }; this.write(all); return all[i];
+  },
+  async remove(id) { this.write(this.read().filter((t) => t.id !== id)); },
+  async uploadPhoto(blob, dataUrl) { return dataUrl; }      // in locale la foto resta come dato interno
+};
+
+const remoteStore = {
+  async load() {
+    const { data, error } = await db.from('tasks').select('*').order('sort_order').order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+  async insert(row) {
+    const { data, error } = await db.from('tasks').insert(row).select().single();
+    if (error) throw error; return data;
+  },
+  async update(id, patch) {
+    const { data, error } = await db.from('tasks').update(patch).eq('id', id).select().single();
+    if (error) throw error; return data;
+  },
+  async remove(id) {
+    const { error } = await db.from('tasks').delete().eq('id', id);
+    if (error) throw error;
+  },
+  async uploadPhoto(blob) {
+    const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+    const { error } = await db.storage.from(BUCKET).upload(name, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
+    if (error) throw new Error('Foto non caricata: ' + error.message);
+    return db.storage.from(BUCKET).getPublicUrl(name).data.publicUrl;
+  }
+};
+
+let store = localStore;
+
+/* ==========================================================================
+   FOTO: compressione lato telefono (rete debole in stalla) + anteprima
+   ========================================================================== */
+async function shrink(file, max = 1280, q = 0.72) {
+  const bmp = await (async () => {
+    if (window.createImageBitmap) { try { return await createImageBitmap(file); } catch (e) {} }
+    return await new Promise((res, rej) => {
+      const im = new Image(); const fr = new FileReader();
+      fr.onload = () => { im.onload = () => res(im); im.onerror = rej; im.src = fr.result; };
+      fr.onerror = rej; fr.readAsDataURL(file);
+    });
+  })();
+  const w0 = bmp.width || bmp.naturalWidth, h0 = bmp.height || bmp.naturalHeight;
+  const k = Math.min(1, max / Math.max(w0, h0));
+  const c = document.createElement('canvas');
+  c.width = Math.round(w0 * k); c.height = Math.round(h0 * k);
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', q));
+  return { blob, dataUrl: c.toDataURL('image/jpeg', q) };
+}
+
+let photoTarget = null;
+$('#photo-input').addEventListener('change', async (ev) => {
+  const input = ev.target;
+  const f = input.files && input.files[0];
+  if (!f || !photoTarget) { input.value = ''; return; }
+  try {
+    toast('Preparo la foto…');
+    const out = await shrink(f);
+    photo[photoTarget] = out;
+    if (photoTarget === 'sheet') { openSheet(sheetId); }
+    else {
+      $(`#${photoTarget}-photo-img`).src = out.dataUrl;
+      $(`#${photoTarget}-photo-wrap`).hidden = false;
+    }
+    toast('Foto pronta (' + Math.round(out.blob.size / 1024) + ' KB)');
+  } catch (e) {
+    toast('Foto non leggibile: ' + (e.message || e), true);
+  } finally {
+    // Azzeriamo SOLO ora: farlo prima invalida il file e la conversione
+    // non si completa. Serve comunque, per poter riscegliere la stessa foto.
+    input.value = '';
+  }
+});
+
+/* ==========================================================================
+   UTILITÀ UI
+   ========================================================================== */
+let toastTimer = null;
+function toast(msg, err = false) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.style.background = err ? '#8C1D18' : '#20281A';
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, err ? 5000 : 2100);
+}
+function setConn(text, bg, fg) {
+  const el = $('#conn');
+  el.textContent = text;
+  el.style.background = bg; el.style.color = fg || '#14200F'; el.style.borderColor = 'transparent';
+}
+// `campo` è il nome del dato che il chip imposta; `attr` è l'attributo che lo
+// veicola (data-nl nel form rapido, data-sh nello sheet). Il valore va SEMPRE
+// in data-value, altrimenti il gestore dei tap non sa cosa impostare.
+function chips(host, values, current, attr, campo, cls = 'flex-1') {
+  $(host).innerHTML = values.map((v) => {
+    const val = typeof v === 'object' ? v.v : v;
+    const lab = typeof v === 'object' ? `${v.e} ${v.v}` : v;
+    return `<button type="button" class="chip ${cls}" aria-pressed="${current === val}"
+              ${attr}="${campo}" data-value="${esc(val)}">${esc(lab)}</button>`;
+  }).join('');
+}
+function badgesOf(t) {
+  const out = [];
+  if (t.category) out.push(`<span class="badge">${catEmoji(t.category)} ${esc(t.category)}</span>`);
+  if (t.estimated_time) out.push(`<span class="badge">⏱️ ${esc(t.estimated_time)}</span>`);
+  out.push(`<span class="badge badge-who">👤 ${esc(t.assigned_to)}</span>`);
+  if (t.priority === 'Alta' && t.status !== 'Completato') out.push('<span class="badge badge-pri">🔥 Alta</span>');
+  if (t.due_date && t.status !== 'Completato') {
+    const n = daysFromToday(t.due_date);
+    const cls = n < 0 ? 'badge-hot' : n === 0 ? 'badge-today' : '';
+    out.push(`<span class="badge ${cls}">📅 ${esc(dateLabel(t.due_date))}</span>`);
+  }
+  return out.join('');
+}
+function photoTag(t) {
+  return t.photo_url ? `<img src="${esc(t.photo_url)}" class="thumb mt-2" alt="Foto" loading="lazy" data-lb="${esc(t.photo_url)}">` : '';
+}
+
+/* ==========================================================================
+   SELEZIONI / ORDINAMENTI
+   ========================================================================== */
+const routineDone = (t) => t.last_done_date === TODAY;
+const isMine = (t) => mine === 'tutti' || t.assigned_to === me || t.assigned_to === 'Tutti';
+
+const byUrgency = (a, b) => {
+  const da = a.due_date ? daysFromToday(a.due_date) : 9e5;
+  const dbb = b.due_date ? daysFromToday(b.due_date) : 9e5;
+  if (da !== dbb) return da - dbb;
+  const rank = { Alta: 0, Media: 1, Bassa: 2 };
+  const pa = rank[a.priority] ?? 1, pb = rank[b.priority] ?? 1;
+  if (pa !== pb) return pa - pb;
+  return String(b.created_at).localeCompare(String(a.created_at));
+};
+
+const routines = () => tasks.filter((t) => t.kind === 'Routine').sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+const lavori   = () => tasks.filter((t) => t.kind === 'Lavoro');
+const note     = () => tasks.filter((t) => t.kind === 'Nota').sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+const spesa    = () => tasks.filter((t) => t.kind === 'Spesa');
+
+/* ==========================================================================
+   RENDER: OGGI
+   ========================================================================== */
+function cardLavoro(t, azioni = true) {
+  const late = t.status !== 'Completato' && t.due_date && daysFromToday(t.due_date) < 0;
+  return `
+    <article class="card ${late ? 'card-hot' : ''} ${t.status === 'Completato' ? 'card-done' : ''}" data-open="${t.id}">
+      <div class="flex items-start gap-2">
+        <h3 class="flex-1 font-black text-base leading-tight ${t.status === 'Completato' ? 'line-through opacity-60' : ''}">${esc(t.title)}</h3>
+        ${azioni ? `<button class="btn btn-primary btn-sm shrink-0" data-act="${t.status === 'Da fare' ? 'start' : 'done'}" data-id="${t.id}">
+             ${t.status === 'Da fare' ? '▶ Inizia' : '✓ Fatto'}</button>` : ''}
+      </div>
+      <div class="flex flex-wrap gap-1.5 mt-2">${badgesOf(t)}</div>
+      ${t.notes ? `<p class="mt-2 text-sm font-semibold" style="color:var(--ink-2)">${esc(t.notes)}</p>` : ''}
+      ${photoTag(t)}
+    </article>`;
+}
+
+function renderOggi() {
+  const rt = routines();
+  const fatte = rt.filter(routineDone).length;
+  const inCorso = lavori().filter((t) => t.status === 'In corso').sort(byUrgency);
+  const urgenti = lavori().filter((t) => t.status === 'Da fare' && t.due_date && daysFromToday(t.due_date) <= 0).sort(byUrgency);
+
+  let h = '';
+
+  h += `<section>
+      <h2 class="h-sec">☀️ Routine di oggi <span class="h-count">${fatte}/${rt.length}</span></h2>
+      <div class="space-y-2">
+        ${rt.length ? rt.map((t) => `
+          <button class="rt ${routineDone(t) ? 'rt-on' : ''}" data-act="routine" data-id="${t.id}">
+            <span class="rt-box">✓</span>
+            <span class="flex-1">
+              <span class="rt-title">${esc(t.title)}</span>
+              <span class="mt-1 flex flex-wrap gap-1.5">
+                <span class="badge badge-who">👤 ${esc(t.assigned_to)}</span>
+                ${t.estimated_time ? `<span class="badge">⏱️ ${esc(t.estimated_time)}</span>` : ''}
+              </span>
+            </span>
+          </button>`).join('')
+        : `<p class="text-sm font-semibold" style="color:var(--ink-2)">Nessuna routine. Aggiungine una qui sotto.</p>`}
+      </div>
+      <form id="form-routine" class="flex gap-2 mt-2">
+        <input id="nr-title" class="field flex-1" placeholder="Nuova routine giornaliera" maxlength="90" required autocomplete="off">
+        <button type="submit" class="btn btn-primary px-5">＋</button>
+      </form>
+    </section>`;
+
+  if (urgenti.length) h += `<section><h2 class="h-sec">⚠️ In scadenza <span class="h-count">${urgenti.length}</span></h2>
+      <div class="space-y-2.5">${urgenti.map((t) => cardLavoro(t)).join('')}</div></section>`;
+
+  if (inCorso.length) h += `<section><h2 class="h-sec">🔄 In corso <span class="h-count">${inCorso.length}</span></h2>
+      <div class="space-y-2.5">${inCorso.map((t) => cardLavoro(t)).join('')}</div></section>`;
+
+  if (!urgenti.length && !inCorso.length) {
+    h += `<section class="card text-center py-8">
+        <div class="text-4xl">👍</div>
+        <p class="mt-2 font-black">Nessuna scadenza oggi</p>
+        <p class="mt-1 text-sm font-semibold" style="color:var(--ink-2)">I lavori programmati sono nella sezione Lavori.</p>
       </section>`;
   }
+  $('#oggi-body').innerHTML = h;
+}
 
-  function render() {
-    renderFilters();
-    const v = visible();
+/* ==========================================================================
+   RENDER: LAVORI
+   ========================================================================== */
+function renderLavori() {
+  $$('[data-mine]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mine === mine));
+  const v = lavori().filter(isMine);
+  const daFare  = v.filter((t) => t.status === 'Da fare').sort(byUrgency);
+  const inCorso = v.filter((t) => t.status === 'In corso').sort(byUrgency);
 
-    const inCorso  = v.filter((t) => t.status === 'In corso').sort(byUrgency);
-    const aperti   = v.filter((t) => t.status === 'Da fare');
-    const urgenti  = aperti.filter((t) => t.due_date && daysFromToday(t.due_date) <= 0).sort(byUrgency);
-    const settimana = aperti.filter((t) => { const n = daysFromToday(t.due_date); return n !== null && n > 0 && n <= 7; }).sort(byUrgency);
-    const dopo     = aperti.filter((t) => { const n = daysFromToday(t.due_date); return n === null || n > 7; }).sort(byUrgency);
-    const fatti    = v.filter((t) => t.status === 'Completato')
-                      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
-                      .slice(0, 25);
+  let h = '';
+  if (inCorso.length) h += `<section><h2 class="h-sec">🔄 In corso <span class="h-count">${inCorso.length}</span></h2>
+      <div class="space-y-2.5">${inCorso.map((t) => cardLavoro(t)).join('')}</div></section>`;
+  h += `<section><h2 class="h-sec">🔨 Da fare <span class="h-count">${daFare.length}</span></h2>
+      <div class="space-y-2.5">${daFare.length ? daFare.map((t) => cardLavoro(t)).join('')
+        : `<p class="card text-center font-bold py-6">Nessun lavoro in attesa 🎉</p>`}</div></section>`;
+  $('#lavori-body').innerHTML = h;
+}
 
-    let html = '';
-    html += section('Da fare oggi / in ritardo', '⚠️', urgenti, 'hot');
-    html += section('In corso',                  '🔄', inCorso, 'go');
-    html += section('Prossimi 7 giorni',         '🗓️', settimana);
-    html += section('Più avanti / senza data',   '📥', dopo);
-    html += section('Completati',                '✅', fatti);
+/* ==========================================================================
+   RENDER: REGISTRO
+   ========================================================================== */
+function renderRegistro() {
+  const n = note();
+  $('#registro-body').innerHTML = n.length ? n.map((t) => `
+      <article class="card" data-open="${t.id}">
+        <div class="flex items-start gap-2">
+          <h3 class="flex-1 font-black text-base leading-tight">${esc(t.title)}</h3>
+          <span class="badge">${stampLabel(t.created_at)}</span>
+        </div>
+        ${t.notes ? `<p class="mt-2 text-sm font-semibold" style="color:var(--ink-2)">${esc(t.notes)}</p>` : ''}
+        ${photoTag(t)}
+      </article>`).join('')
+    : `<p class="card text-center font-bold py-8">Nessuna nota.<br><span class="font-semibold text-sm">Usa il modulo sopra per annotare animali e attrezzature, anche con foto.</span></p>`;
+}
 
-    if (!html) {
-      const filtroAttivo = filters.status !== 'Tutti' || filters.assigned_to !== 'Tutti' || filters.category !== 'Tutte';
-      html = `<div class="text-center py-14 px-6">
-                <div class="text-6xl">${filtroAttivo ? '🔍' : '🌾'}</div>
-                <p class="mt-3 font-extrabold text-lg">${filtroAttivo ? 'Nessuna attività con questi filtri' : 'Nessuna attività'}</p>
-                <p class="mt-1 text-sm font-medium text-slate-600">
-                  ${filtroAttivo ? 'Prova a toccare “Tutti / Tutte”.' : 'Tocca “＋ Nuovo” in basso a destra per iniziare.'}
-                </p>
-              </div>`;
-    }
-    $('#board').innerHTML = html;
+/* ==========================================================================
+   RENDER: SPESA
+   ========================================================================== */
+function renderSpesa() {
+  const s = spesa();
+  const daPrendere = s.filter((t) => t.status !== 'Completato');
+  const presi      = s.filter((t) => t.status === 'Completato');
+  const riga = (t) => `
+    <button class="rt ${t.status === 'Completato' ? 'rt-on' : ''}" data-act="spesa" data-id="${t.id}">
+      <span class="rt-box">✓</span>
+      <span class="rt-title flex-1">${esc(t.title)}</span>
+      <span class="text-xl px-1" data-act="del-spesa" data-id="${t.id}" role="button" aria-label="Elimina">🗑</span>
+    </button>`;
+
+  let h = `<section><h2 class="h-sec">🛒 Da comprare <span class="h-count">${daPrendere.length}</span></h2>
+      <div class="space-y-2">${daPrendere.length ? daPrendere.map(riga).join('')
+        : `<p class="card text-center font-bold py-6">Lista vuota</p>`}</div></section>`;
+  if (presi.length) h += `<section>
+      <h2 class="h-sec">✅ Presi <span class="h-count">${presi.length}</span></h2>
+      <div class="space-y-2">${presi.map(riga).join('')}</div>
+      <button class="btn btn-ghost w-full mt-2" data-act="svuota-spesa">🧹 Togli dalla lista i ${presi.length} articoli presi</button>
+    </section>`;
+  $('#spesa-body').innerHTML = h;
+}
+
+/* ==========================================================================
+   RENDER: STORICO
+   ========================================================================== */
+function renderStorico() {
+  const fatti = tasks
+    .filter((t) => (t.kind === 'Lavoro' && t.status === 'Completato') || (t.kind === 'Routine' && t.last_done_date))
+    .map((t) => ({ t, quando: t.kind === 'Routine' ? (t.completed_at || t.last_done_date + 'T12:00:00') : (t.completed_at || t.created_at) }))
+    .sort((a, b) => String(b.quando).localeCompare(String(a.quando)));
+
+  if (!fatti.length) {
+    $('#storico-body').innerHTML = `<p class="card text-center font-bold py-10">Ancora nessun lavoro completato.</p>`;
+    return;
   }
+  // raggruppo per giorno
+  const gruppi = {};
+  fatti.forEach((x) => { const g = String(x.quando).slice(0, 10); (gruppi[g] = gruppi[g] || []).push(x); });
 
-  /* ==========================================================================
-     TOAST
-     ========================================================================== */
-  let toastTimer = null;
-  function toast(msg, isError = false) {
-    const el = $('#toast');
-    el.textContent = msg;
-    el.style.background = isError ? '#991b1b' : '#0f172a';
-    el.hidden = false;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { el.hidden = true; }, isError ? 4500 : 2200);
-  }
+  $('#storico-body').innerHTML = Object.keys(gruppi).sort().reverse().map((g) => `
+    <section>
+      <h2 class="h-sec">📅 ${esc(dateLabel(g) || g)} <span class="h-count">${gruppi[g].length}</span></h2>
+      <div class="space-y-2.5">
+        ${gruppi[g].map(({ t, quando }) => `
+          <article class="card card-done" ${t.kind === 'Lavoro' ? `data-open="${t.id}"` : ''}>
+            <div class="flex items-start gap-2">
+              <h3 class="flex-1 font-bold text-base leading-tight">${esc(t.title)}</h3>
+              <span class="badge">${esc(stampLabel(quando))}</span>
+            </div>
+            <div class="flex flex-wrap gap-1.5 mt-2">
+              ${t.kind === 'Routine' ? '<span class="badge">🔁 Routine</span>' : ''}
+              ${badgesOf(t)}
+            </div>
+            ${t.notes ? `<p class="mt-2 text-sm font-semibold" style="color:var(--ink-2)">${esc(t.notes)}</p>` : ''}
+            ${photoTag(t)}
+          </article>`).join('')}
+      </div>
+    </section>`).join('');
+}
 
-  /* ==========================================================================
-     AZIONI RAPIDE (1 tap) — aggiornamento ottimistico + rollback se errore
-     ========================================================================== */
-  async function setStatus(id, to) {
-    const i = tasks.findIndex((t) => t.id === id);
-    if (i < 0) return;
-    const before = tasks[i];
-    tasks[i] = { ...before, status: to };
-    render();
-    try {
-      await store.update(id, { status: to });
-      if (navigator.vibrate) navigator.vibrate(15);
-      toast(to === 'Completato' ? '✓ Completato' : to === 'In corso' ? '▶ In corso' : '↩ Rimesso in “Da fare”');
-    } catch (e) {
-      tasks[i] = before; render();
-      toast('Errore salvataggio: ' + (e.message || e), true);
-    }
-  }
-
-  /* ==========================================================================
-     FORM (sheet) — chip, apertura in nuovo/modifica, salvataggio, eliminazione
-     ========================================================================== */
-  function chipRow(hostId, field, values, big = false) {
-    $(hostId).innerHTML = values.map((v) => {
-      const val = typeof v === 'object' ? v.v : v;
-      const lab = typeof v === 'object' ? `${v.e} ${v.v}` : v;
-      return `<button type="button" class="chip ${big ? 'chip-lg' : ''} justify-center flex-1"
-                aria-pressed="${draft[field] === val}" data-set="${field}" data-value="${esc(val)}">${esc(lab)}</button>`;
-    }).join('');
-  }
-
-  function renderChips() {
-    chipRow('#c-category',       'category',       CATEGORIES);
-    chipRow('#c-priority',       'priority',       PRIORITIES, true);
-    chipRow('#c-assigned_to',    'assigned_to',    ASSIGNEES,  true);
-    chipRow('#c-estimated_time', 'estimated_time', TIMES);
-    chipRow('#c-status',         'status',         STATUSES);
-
-    const cur = $('#f-due').value;
-    const quick = [
-      { lab: 'Oggi',    val: TODAY },
-      { lab: 'Domani',  val: plusDays(1) },
-      { lab: 'Fra 3 gg', val: plusDays(3) },
-      { lab: 'Fra 1 sett.', val: plusDays(7) },
-      { lab: 'Nessuna', val: '' }
-    ];
-    $('#c-quickdate').innerHTML = quick.map((q) =>
-      `<button type="button" class="chip" aria-pressed="${cur === q.val}" data-date="${q.val}">${q.lab}</button>`).join('');
-  }
-
-  function openSheet(task) {
-    editing = task ? task.id : null;
-    draft = task
-      ? { category: task.category, priority: task.priority, assigned_to: task.assigned_to,
-          estimated_time: task.estimated_time || '', status: task.status }
-      : { ...DEFAULTS };
-
-    $('#sheet-title').textContent = task ? 'Modifica attività' : 'Nuova attività';
-    $('#f-title').value = task ? task.title : '';
-    $('#f-notes').value = task ? (task.notes || '') : '';
-    $('#f-due').value   = task ? (task.due_date || '') : '';
-    $('#wrap-status').hidden = !task;
-    $('#btn-delete').hidden  = !task;
-    $('#btn-delete').textContent = '🗑 Elimina attività';
-    $('#btn-delete').dataset.armed = '';
-
-    renderChips();
-    $('#sheet').hidden = false;
-    document.body.style.overflow = 'hidden';
-    if (!task) setTimeout(() => $('#f-title').focus(), 120);
-  }
-
-  function closeSheet() {
-    $('#sheet').hidden = true;
-    document.body.style.overflow = '';
-    editing = null;
-  }
-
-  async function submitForm(ev) {
-    ev.preventDefault();
-    const title = $('#f-title').value.trim();
-    if (!title) { toast('Scrivi cosa c\'è da fare', true); $('#f-title').focus(); return; }
-
-    const row = {
-      title,
-      category:       draft.category,
-      priority:       draft.priority,
-      assigned_to:    draft.assigned_to,
-      estimated_time: draft.estimated_time || null,
-      status:         editing ? draft.status : 'Da fare',
-      due_date:       $('#f-due').value || null,
-      notes:          $('#f-notes').value.trim() || null
-    };
-
-    const btn = $('#btn-save');
-    btn.disabled = true; btn.textContent = 'Salvataggio…';
-    try {
-      if (editing) {
-        const saved = await store.update(editing, row);
-        upsertLocal(saved || { id: editing, ...row });
-        toast('Modifiche salvate');
-      } else {
-        const saved = await store.insert(row);
-        if (saved) upsertLocal(saved);
-        toast('Attività aggiunta');
-      }
-      render();
-      closeSheet();
-    } catch (e) {
-      toast('Errore: ' + (e.message || e), true);
-    } finally {
-      btn.disabled = false; btn.textContent = 'Salva';
-    }
-  }
-
-  async function deleteCurrent() {
-    const btn = $('#btn-delete');
-    if (btn.dataset.armed !== '1') {          // conferma in due tap, senza popup di sistema
-      btn.dataset.armed = '1';
-      btn.textContent = '⚠️ Tocca di nuovo per eliminare';
-      setTimeout(() => { if (btn.dataset.armed === '1') { btn.dataset.armed = ''; btn.textContent = '🗑 Elimina attività'; } }, 4000);
-      return;
-    }
-    const id = editing;
-    try {
-      await store.remove(id);
-      tasks = tasks.filter((t) => t.id !== id);
-      render(); closeSheet(); toast('Attività eliminata');
-    } catch (e) {
-      toast('Errore eliminazione: ' + (e.message || e), true);
-    }
-  }
-
-  /* ==========================================================================
-     EVENTI (delegazione: un solo listener per tutti i tap)
-     ========================================================================== */
-  document.addEventListener('click', (ev) => {
-    const el = ev.target.closest('[data-act],[data-filter],[data-set],[data-date]');
-    if (!el) return;
-
-    if (el.dataset.filter) {
-      filters[el.dataset.filter] = el.dataset.value;
-      render();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
-    if (el.dataset.set) {
-      draft[el.dataset.set] = el.dataset.value;
-      renderChips();
-      return;
-    }
-    if (el.dataset.date !== undefined && el.hasAttribute('data-date')) {
-      $('#f-due').value = el.dataset.date;
-      renderChips();
-      return;
-    }
-    if (el.dataset.act === 'retry')  { reload(true); return; }
-    if (el.dataset.act === 'status') { ev.stopPropagation(); setStatus(el.dataset.id, el.dataset.to); return; }
-    if (el.dataset.act === 'edit') {
-      const t = tasks.find((x) => x.id === el.dataset.id);
-      if (t) openSheet(t);
-    }
+/* ==========================================================================
+   RENDER: dispatcher
+   ========================================================================== */
+function render() {
+  if (loadFailed) return;
+  ['oggi', 'lavori', 'registro', 'spesa', 'storico'].forEach((v) => { $('#view-' + v).hidden = (v !== view); });
+  $$('#nav .tab').forEach((b) => {
+    if (b.dataset.view === view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
+  $('#btn-me').textContent = me === 'Anna' ? 'A' : 'I';
 
-  $('#form').addEventListener('submit', submitForm);
-  $('#btn-new').addEventListener('click', () => openSheet(null));
-  $('#btn-close').addEventListener('click', closeSheet);
-  $('#sheet-bg').addEventListener('click', closeSheet);
-  $('#btn-delete').addEventListener('click', deleteCurrent);
-  $('#f-due').addEventListener('change', renderChips);
-  $('#btn-refresh').addEventListener('click', () => reload(true));
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
+  if (view === 'oggi')     renderOggi();
+  if (view === 'lavori')   renderLavori();
+  if (view === 'registro') renderRegistro();
+  if (view === 'spesa')    renderSpesa();
+  if (view === 'storico')  renderStorico();
+}
 
-  // Sul telefono la connessione realtime può cadere in background:
-  // quando l'app torna in primo piano ricarichiamo l'elenco.
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && CONFIGURED) reload(false); });
-  window.addEventListener('online',  () => { if (CONFIGURED) reload(false); });
-  window.addEventListener('offline', () => setConn('● Offline', 'b-late'));
+function showLoadError(e) {
+  const off = !navigator.onLine;
+  $('#oggi-body').innerHTML = `
+    <div class="card card-hot text-center">
+      <div class="text-5xl">${off ? '📵' : '⚠️'}</div>
+      <p class="mt-2 font-black text-lg" style="color:var(--danger)">${off ? 'Nessuna connessione' : 'Dati non caricati'}</p>
+      <p class="mt-1 text-sm font-bold">${off ? 'I lavori sono al sicuro nel database e ricompariranno appena torni in linea.'
+                                              : 'Non riesco a leggere l\'elenco dal database.'}</p>
+      <p class="mt-2 text-xs font-mono break-words" style="color:var(--danger)">${esc((e && e.message) || e)}</p>
+      <button class="btn btn-primary btn-wide mt-3" data-act="retry">🔄 Riprova</button>
+    </div>`;
+  ['lavori', 'registro', 'spesa', 'storico'].forEach((v) => { $('#view-' + v).hidden = true; });
+  $('#view-oggi').hidden = false;
+}
 
-  /* ==========================================================================
-     AVVIO
-     ========================================================================== */
-  // Se il caricamento non riesce (rete debole in stalla, progetto Supabase in
-  // pausa...) NON mostriamo "Nessuna attività": sarebbe fuorviante, sembrerebbe
-  // che non ci sia niente da fare. Mostriamo l'errore con un pulsante Riprova.
-  function showLoadError(e) {
-    renderFilters();
-    const msg = (e && e.message) ? e.message : String(e);
-    const offline = !navigator.onLine;
-    $('#board').innerHTML = `
-      <div class="rounded-2xl border-2 border-red-300 bg-red-50 p-4 text-center">
-        <div class="text-5xl">${offline ? '📵' : '⚠️'}</div>
-        <p class="mt-2 font-black text-lg text-red-900">${offline ? 'Nessuna connessione' : 'Dati non caricati'}</p>
-        <p class="mt-1 text-sm font-semibold text-red-800">
-          ${offline ? 'Il telefono non è connesso a internet. I lavori già salvati sono nel database e ricompariranno appena torni in linea.'
-                    : 'Non riesco a leggere l\'elenco dal database.'}
-        </p>
-        <p class="mt-2 text-xs font-mono break-words text-red-700">${esc(msg)}</p>
-        <button data-act="retry" class="mt-3 w-full min-h-[50px] rounded-xl text-white font-black" style="background:var(--brand)">
-          🔄 Riprova
-        </button>
-      </div>`;
+/* ==========================================================================
+   AZIONI
+   ========================================================================== */
+function upsertLocal(row) {
+  const i = tasks.findIndex((t) => t.id === row.id);
+  if (i < 0) tasks.push(row); else tasks[i] = { ...tasks[i], ...row };
+}
+
+async function patch(id, p, msg) {
+  const i = tasks.findIndex((t) => t.id === id);
+  if (i < 0) return;
+  const before = tasks[i];
+  tasks[i] = { ...before, ...p };
+  render();
+  try {
+    await store.update(id, p);
+    if (navigator.vibrate) navigator.vibrate(14);
+    if (msg) toast(msg);
+  } catch (e) {
+    tasks[i] = before; render();
+    toast('Non salvato: ' + (e.message || e), true);
   }
+}
 
-  // Più caricamenti possono sovrapporsi (avvio + tap su 🔄 + ritorno in primo
-  // piano). Numeriamo le richieste: solo la più recente può aggiornare la
-  // schermata, altrimenti una risposta vecchia e lenta sovrascrive quella nuova.
-  let reloadSeq = 0;
+const toggleRoutine = (id) => {
+  const t = tasks.find((x) => x.id === id); if (!t) return;
+  const on = routineDone(t);
+  patch(id, on ? { last_done_date: null, completed_at: null }
+               : { last_done_date: TODAY, completed_at: new Date().toISOString() },
+        on ? 'Rimesso da fare' : '✓ Fatto');
+};
 
-  async function reload(showToast) {
-    const mia = ++reloadSeq;
-    try {
-      const data = await store.load();
-      if (mia !== reloadSeq) return;          // superata da una richiesta più recente
-      tasks = data;
-      loadFailed = false;
-      render();
-      if (showToast) toast('Elenco aggiornato');
-    } catch (e) {
-      if (mia !== reloadSeq) return;
-      loadFailed = true;
-      showLoadError(e);
-      toast('Impossibile caricare i dati: ' + (e.message || e), true);
-    }
+const toggleSpesa = (id) => {
+  const t = tasks.find((x) => x.id === id); if (!t) return;
+  const done = t.status === 'Completato';
+  patch(id, done ? { status: 'Da fare', completed_at: null }
+                 : { status: 'Completato', completed_at: new Date().toISOString() });
+};
+
+async function svuotaSpesa() {
+  const presi = spesa().filter((t) => t.status === 'Completato');
+  for (const t of presi) {
+    try { await store.remove(t.id); tasks = tasks.filter((x) => x.id !== t.id); } catch (e) { toast('Errore: ' + e.message, true); }
   }
+  render(); toast('Lista ripulita');
+}
 
-  function installIconAndManifest() {
-    // Icona generata a runtime (così il file resta uno solo) + manifest inline.
-    let icon = '';
-    try {
-      const c = document.createElement('canvas'); c.width = c.height = 192;
-      const x = c.getContext('2d');
-      x.fillStyle = '#15803d'; x.fillRect(0, 0, 192, 192);
-      x.font = '120px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
-      x.fillText('🐄', 96, 104);
-      icon = c.toDataURL('image/png');
-    } catch { /* ambiente senza canvas: si prosegue senza icona */ }
+async function removeTask(id) {
+  try { await store.remove(id); tasks = tasks.filter((t) => t.id !== id); render(); toast('Eliminato'); }
+  catch (e) { toast('Non eliminato: ' + (e.message || e), true); }
+}
 
-    if (icon) {
-      const apple = document.createElement('link');
-      apple.rel = 'apple-touch-icon'; apple.href = icon;
-      document.head.appendChild(apple);
-      const fav = document.createElement('link');
-      fav.rel = 'icon'; fav.href = icon;
-      document.head.appendChild(fav);
-    }
-    const manifest = {
-      name: 'Fattoria — Attività', short_name: 'Fattoria', start_url: './',
-      display: 'standalone', orientation: 'portrait',
-      background_color: '#eef1ec', theme_color: '#15803d',
-      icons: icon ? [{ src: icon, sizes: '192x192', type: 'image/png', purpose: 'any' }] : []
+/* ---------- inserimenti ---------- */
+async function creaLavoro(ev) {
+  ev.preventDefault();
+  const title = $('#nl-title').value.trim();
+  if (!title) { toast('Scrivi cosa c\'è da fare', true); return; }
+  const btn = ev.target.querySelector('button[type="submit"]');
+  btn.disabled = true; btn.textContent = 'Salvo…';
+  try {
+    let url = null;
+    if (photo.nl) url = await store.uploadPhoto(photo.nl.blob, photo.nl.dataUrl);
+    const row = {
+      kind: 'Lavoro', title, category: draft.category, estimated_time: draft.estimated_time,
+      assigned_to: draft.assigned_to, priority: draft.priority, status: 'Da fare',
+      due_date: $('#nl-due').value || null, notes: $('#nl-notes').value.trim() || null, photo_url: url
     };
-    const link = document.createElement('link');
-    link.rel = 'manifest';
-    link.href = 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(manifest));
-    document.head.appendChild(link);
+    upsertLocal(await store.insert(row));
+    $('#form-lavoro').reset();
+    photo.nl = null; $('#nl-photo-wrap').hidden = true; $('#nl-extra').hidden = true;
+    $('#nl-more').textContent = '＋ Altro (data, priorità, foto, note)';
+    renderQuickChips();                       // il reset ha svuotato la data: riallineo i chip
+    render(); toast('Attività aggiunta');
+  } catch (e) { toast('Non salvato: ' + (e.message || e), true); }
+  finally { btn.disabled = false; btn.textContent = '＋ Aggiungi'; }
+}
+
+async function creaNota(ev) {
+  ev.preventDefault();
+  const title = $('#nn-title').value.trim();
+  if (!title) return;
+  const btn = ev.target.querySelector('button[type="submit"]');
+  btn.disabled = true; btn.textContent = 'Salvo…';
+  try {
+    let url = null;
+    if (photo.nn) url = await store.uploadPhoto(photo.nn.blob, photo.nn.dataUrl);
+    upsertLocal(await store.insert({ kind: 'Nota', title, notes: $('#nn-notes').value.trim() || null,
+                                     photo_url: url, assigned_to: me, status: 'Da fare' }));
+    $('#form-nota').reset(); photo.nn = null; $('#nn-photo-wrap').hidden = true;
+    render(); toast('Nota salvata');
+  } catch (e) { toast('Non salvata: ' + (e.message || e), true); }
+  finally { btn.disabled = false; btn.textContent = 'Salva nota'; }
+}
+
+async function creaSpesa(ev) {
+  ev.preventDefault();
+  const title = $('#ns-title').value.trim(); if (!title) return;
+  try { upsertLocal(await store.insert({ kind: 'Spesa', title, assigned_to: 'Tutti', status: 'Da fare' }));
+        $('#form-spesa').reset(); render(); }
+  catch (e) { toast('Non aggiunto: ' + (e.message || e), true); }
+}
+
+async function creaRoutine(ev) {
+  ev.preventDefault();
+  const title = $('#nr-title').value.trim(); if (!title) return;
+  try {
+    const n = routines().length + 1;
+    upsertLocal(await store.insert({ kind: 'Routine', title, is_daily_routine: true, assigned_to: 'Tutti',
+                                     estimated_time: '30m', status: 'Da fare', sort_order: n }));
+    render(); toast('Routine aggiunta');
+  } catch (e) { toast('Non aggiunta: ' + (e.message || e), true); }
+}
+
+/* ==========================================================================
+   SHEET: dettaglio, modifica, eliminazione
+   ========================================================================== */
+function openSheet(id) {
+  const t = tasks.find((x) => x.id === id); if (!t) return;
+  sheetId = id;
+  const isLavoro = t.kind === 'Lavoro', isRoutine = t.kind === 'Routine';
+  $('#sheet-title').textContent = isRoutine ? 'Routine' : isLavoro ? 'Attività' : 'Nota';
+  const foto = photo.sheet ? photo.sheet.dataUrl : t.photo_url;
+
+  $('#sheet-body').innerHTML = `
+    <div>
+      <span class="lbl">Titolo</span>
+      <input id="sh-title" class="field mt-1.5" value="${esc(t.title)}" maxlength="140">
+    </div>
+    ${isLavoro || isRoutine ? `
+      <div><span class="lbl">Cosa</span><div id="sh-category" class="flex gap-2 mt-1.5 overflow-x-auto no-sb"></div></div>
+      <div><span class="lbl">Tempo</span><div id="sh-time" class="flex gap-2 mt-1.5"></div></div>
+      <div><span class="lbl">Chi</span><div id="sh-who" class="flex gap-2 mt-1.5"></div></div>` : ''}
+    ${isLavoro ? `
+      <div><span class="lbl">Priorità</span><div id="sh-priority" class="flex gap-2 mt-1.5"></div></div>
+      <div><span class="lbl">Scadenza</span><input id="sh-due" type="date" class="field mt-1.5" value="${esc(t.due_date || '')}"></div>
+      <div><span class="lbl">Stato</span><div id="sh-status" class="flex gap-2 mt-1.5"></div></div>` : ''}
+    <div>
+      <span class="lbl">Note</span>
+      <textarea id="sh-notes" rows="3" class="field mt-1.5">${esc(t.notes || '')}</textarea>
+    </div>
+    <div>
+      <span class="lbl">Foto</span>
+      ${foto ? `<img src="${esc(foto)}" class="thumb mt-1.5" alt="Foto" data-lb="${esc(foto)}">` : ''}
+      <div class="flex gap-2 mt-2">
+        <button type="button" class="btn btn-ghost flex-1" data-photo-pick="sheet">📷 ${foto ? 'Cambia' : 'Aggiungi'} foto</button>
+        ${foto ? `<button type="button" class="btn btn-danger" data-act="sh-photo-del">🗑</button>` : ''}
+      </div>
+    </div>
+    <button class="btn btn-primary btn-wide" data-act="sh-save">💾 Salva modifiche</button>
+    <button class="btn btn-danger btn-wide" data-act="sh-del">🗑 Elimina</button>`;
+
+  const d = { category: t.category || 'Altro', estimated_time: t.estimated_time || '30m',
+              assigned_to: t.assigned_to || 'Io', priority: t.priority || 'Media', status: t.status || 'Da fare' };
+  $('#sheet-body').dataset.d = JSON.stringify(d);
+  if (isLavoro || isRoutine) {
+    chips('#sh-category', CATEGORIES, d.category, 'data-sh', 'category', '');
+    chips('#sh-time', TIMES, d.estimated_time, 'data-sh', 'estimated_time');
+    chips('#sh-who', WHO, d.assigned_to, 'data-sh', 'assigned_to');
+  }
+  if (isLavoro) {
+    chips('#sh-priority', PRIORITY, d.priority, 'data-sh', 'priority');
+    chips('#sh-status', ['Da fare', 'In corso', 'Completato'], d.status, 'data-sh', 'status');
+  }
+  $('#sheet').hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSheet() {
+  $('#sheet').hidden = true; document.body.style.overflow = ''; sheetId = null; photo.sheet = null;
+}
+
+async function saveSheet() {
+  const t = tasks.find((x) => x.id === sheetId); if (!t) return;
+  const d = JSON.parse($('#sheet-body').dataset.d || '{}');
+  const p = { title: $('#sh-title').value.trim() || t.title, notes: $('#sh-notes').value.trim() || null };
+  if (t.kind === 'Lavoro' || t.kind === 'Routine') {
+    p.category = d.category; p.estimated_time = d.estimated_time; p.assigned_to = d.assigned_to;
+  }
+  if (t.kind === 'Lavoro') {
+    p.priority = d.priority;
+    p.due_date = $('#sh-due').value || null;
+    p.status = d.status;
+    p.completed_at = d.status === 'Completato' ? (t.completed_at || new Date().toISOString()) : null;
+  }
+  try {
+    if (photo.sheet) p.photo_url = await store.uploadPhoto(photo.sheet.blob, photo.sheet.dataUrl);
+    upsertLocal(await store.update(sheetId, p));
+    closeSheet(); render(); toast('Modifiche salvate');
+  } catch (e) { toast('Non salvato: ' + (e.message || e), true); }
+}
+
+/* ==========================================================================
+   IMPOSTAZIONI
+   ========================================================================== */
+function openSettings() {
+  sheetId = null;
+  $('#sheet-title').textContent = 'Impostazioni';
+  const rt = routines();
+  $('#sheet-body').innerHTML = `
+    <div>
+      <span class="lbl">Chi sta usando l'app</span>
+      <p class="text-sm font-semibold mt-1" style="color:var(--ink-2)">Serve al filtro “Solo i miei” nella sezione Lavori.</p>
+      <div class="flex gap-2 mt-2">
+        <button class="chip flex-1" data-me="Io"   aria-pressed="${me === 'Io'}">Io</button>
+        <button class="chip flex-1" data-me="Anna" aria-pressed="${me === 'Anna'}">Anna</button>
+      </div>
+    </div>
+    <div>
+      <span class="lbl">Collegamento</span>
+      <p class="mt-1 font-bold">${CONFIGURED ? 'Database Supabase' : 'Solo questo dispositivo (Supabase non configurato)'}</p>
+      <p class="text-sm font-semibold" style="color:var(--ink-2)">Stato: ${esc($('#conn').textContent)}</p>
+    </div>
+    <div>
+      <span class="lbl">Routine giornaliere (${rt.length})</span>
+      <div class="space-y-2 mt-2">
+        ${rt.map((t) => `<div class="card flex items-center gap-2">
+            <span class="flex-1 font-bold">${esc(t.title)}</span>
+            <button class="btn btn-danger btn-sm" data-act="del-routine" data-id="${t.id}">🗑</button>
+          </div>`).join('') || '<p class="text-sm font-semibold">Nessuna.</p>'}
+      </div>
+    </div>
+    <button class="btn btn-ghost btn-wide" data-act="retry">🔄 Ricarica i dati</button>`;
+  $('#sheet').hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+
+/* ==========================================================================
+   EVENTI (un solo gestore per tutti i tap)
+   ========================================================================== */
+document.addEventListener('click', (ev) => {
+  const el = ev.target.closest('[data-act],[data-view],[data-open],[data-mine],[data-nl],[data-sh],[data-me],[data-lb],[data-photo-pick],[data-photo-clear],[data-qd]');
+  if (!el) return;
+
+  // navigazione
+  if (el.dataset.view) { view = el.dataset.view; window.scrollTo({ top: 0 }); render(); return; }
+
+  // foto
+  if (el.dataset.photoPick) { photoTarget = el.dataset.photoPick; $('#photo-input').click(); return; }
+  if (el.dataset.photoClear) {
+    const k = el.dataset.photoClear; photo[k] = null;
+    $(`#${k}-photo-wrap`).hidden = true; return;
+  }
+  if (el.dataset.lb) {
+    $('#lightbox img').src = el.dataset.lb; $('#lightbox').hidden = false; return;
   }
 
-  (async function init() {
-    installIconAndManifest();
+  // chip del form rapido
+  if (el.dataset.nl) { draft[el.dataset.nl] = el.dataset.value; renderQuickChips(); return; }
+  if (el.hasAttribute('data-qd')) { $('#nl-due').value = el.dataset.qd; renderQuickChips(); return; }
 
-    if (CONFIGURED && window.supabase) {
-      db = window.supabase.createClient(SUPABASE_URL.trim().replace(/\/$/, ''), SUPABASE_ANON_KEY.trim());
-      store = remoteStore;
-      setConn('● …', 'b-date');
-      await reload(false);
-      startRealtime();
-    } else {
-      store = localStore;
-      $('#local-banner').hidden = false;
-      setConn('● Locale', 'b-today');
+  // chip dello sheet
+  if (el.dataset.sh) {
+    const d = JSON.parse($('#sheet-body').dataset.d || '{}');
+    d[el.dataset.sh] = el.dataset.value;
+    $('#sheet-body').dataset.d = JSON.stringify(d);
+    el.parentElement.querySelectorAll('[data-sh]').forEach((b) => b.setAttribute('aria-pressed', b === el));
+    return;
+  }
+  if (el.dataset.me) { me = el.dataset.me; localStorage.setItem('fattoria_me', me); openSettings(); render(); return; }
+  if (el.dataset.mine) { mine = el.dataset.mine; render(); return; }
 
-      // Diagnosi: se hai già incollato qualcosa ma non va, ti dico cosa non torna.
-      const u = SUPABASE_URL.trim(), k = SUPABASE_ANON_KEY.trim();
-      const problemi = [];
-      if (/^INCOLLA_QUI/.test(u)) problemi.push('la Project URL non è ancora stata inserita');
-      else if (u.includes('/dashboard/')) problemi.push('hai incollato l\'indirizzo della dashboard: serve https://TUOCODICE.supabase.co');
-      else if (!/^https:\/\/[a-z0-9-]+\.supabase\.(co|in)\/?$/i.test(u)) problemi.push('la Project URL non ha il formato https://TUOCODICE.supabase.co');
-      if (/^INCOLLA_QUI/.test(k)) problemi.push('la chiave non è ancora stata inserita');
-      else if (k.length <= 20) problemi.push('la chiave sembra troppo corta (incompleta?)');
-      else if (/^sb_secret|service_role/i.test(k)) problemi.push('stai usando la chiave SEGRETA: usa "anon public" oppure "publishable key"');
-      if (problemi.length) {
-        $('#local-banner').insertAdjacentHTML('beforeend',
-          '<ul class="mt-2 list-disc pl-5 space-y-1">' + problemi.map((p) => `<li>${esc(p)}</li>`).join('') + '</ul>');
+  const id = el.dataset.id;
+  switch (el.dataset.act) {
+    case 'routine':      toggleRoutine(id); return;
+    case 'spesa':        toggleSpesa(id); return;
+    case 'del-spesa':    ev.stopPropagation(); removeTask(id); return;
+    case 'svuota-spesa': svuotaSpesa(); return;
+    case 'start':        ev.stopPropagation(); patch(id, { status: 'In corso' }, '▶ In corso'); return;
+    case 'done':         ev.stopPropagation(); patch(id, { status: 'Completato', completed_at: new Date().toISOString() }, '✓ Completato'); return;
+    case 'retry':        closeSheet(); loadFailed = false; reload(true); return;
+    case 'sh-save':      saveSheet(); return;
+    case 'sh-del':
+      if (el.dataset.armed !== '1') { el.dataset.armed = '1'; el.textContent = '⚠️ Tocca di nuovo per eliminare'; return; }
+      removeTask(sheetId); closeSheet(); return;
+    case 'sh-photo-del': patch(sheetId, { photo_url: null }); photo.sheet = null; openSheet(sheetId); return;
+    case 'del-routine':  removeTask(id).then(() => openSettings()); return;
+  }
+
+  if (el.dataset.open) openSheet(el.dataset.open);
+});
+
+document.addEventListener('submit', (ev) => {
+  if (ev.target.id === 'form-lavoro')  return creaLavoro(ev);
+  if (ev.target.id === 'form-nota')    return creaNota(ev);
+  if (ev.target.id === 'form-spesa')   return creaSpesa(ev);
+  if (ev.target.id === 'form-routine') return creaRoutine(ev);
+});
+
+function renderQuickChips() {
+  chips('#nl-category', CATEGORIES, draft.category, 'data-nl', 'category', '');
+  chips('#nl-time', TIMES, draft.estimated_time, 'data-nl', 'estimated_time');
+  chips('#nl-who', WHO, draft.assigned_to, 'data-nl', 'assigned_to');
+  chips('#nl-priority', PRIORITY, draft.priority, 'data-nl', 'priority');
+  const cur = $('#nl-due').value;
+  $('#nl-quickdate').innerHTML = [['Oggi', TODAY], ['Domani', plusDays(1)], ['Fra 3 gg', plusDays(3)], ['Nessuna', '']]
+    .map(([lab, val]) => `<button type="button" class="chip flex-1" aria-pressed="${cur === val}" data-qd="${val}">${lab}</button>`).join('');
+}
+
+$('#nl-more').addEventListener('click', () => {
+  const x = $('#nl-extra'); x.hidden = !x.hidden;
+  $('#nl-more').textContent = x.hidden ? '＋ Altro (data, priorità, foto, note)' : '− Chiudi extra';
+});
+$('#nl-due').addEventListener('change', renderQuickChips);
+$('#btn-settings').addEventListener('click', openSettings);
+$('#btn-me').addEventListener('click', openSettings);
+$('#sheet-close').addEventListener('click', closeSheet);
+$('#sheet-bg').addEventListener('click', closeSheet);
+$('#lb-close').addEventListener('click', () => { $('#lightbox').hidden = true; });
+$('#lightbox').addEventListener('click', (e) => { if (e.target.id === 'lightbox') $('#lightbox').hidden = true; });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!$('#lightbox').hidden) $('#lightbox').hidden = true;
+  else if (!$('#sheet').hidden) closeSheet();
+});
+
+/* ==========================================================================
+   REALTIME
+   ========================================================================== */
+function startRealtime() {
+  channel = db.channel('tasks-live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload) => {
+      if (payload.eventType === 'DELETE') {
+        const id = payload.old && payload.old.id;
+        if (id) tasks = tasks.filter((t) => t.id !== id);
+      } else if (payload.new) {
+        upsertLocal(payload.new);
       }
-      if (CONFIGURED && !window.supabase) toast('Libreria Supabase non caricata (serve internet). Uso i dati locali.', true);
-      await reload(false);
+      if (loadFailed) { loadFailed = false; reload(false); return; }
+      render();
+    })
+    .subscribe((st) => {
+      if (st === 'SUBSCRIBED') setConn('● Live', '#DCF0D6', '#14401A');
+      else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') setConn('● Offline', '#8C1D18', '#fff');
+      else setConn('● …', '#ffffffcc');
+    });
+}
+
+/* ==========================================================================
+   CARICAMENTO
+   ========================================================================== */
+async function reload(showToast) {
+  const mia = ++reloadSeq;
+  try {
+    const data = await store.load();
+    if (mia !== reloadSeq) return;
+    tasks = data; loadFailed = false;
+    render();
+    if (showToast) toast('Dati aggiornati');
+  } catch (e) {
+    if (mia !== reloadSeq) return;
+    loadFailed = true;
+    showLoadError(e);
+    toast('Dati non caricati: ' + (e.message || e), true);
+  }
+}
+
+// Le routine si azzerano a mezzanotte: se l'app resta aperta tutta la notte
+// bisogna ricalcolare, altrimenti resterebbero spuntate anche il giorno dopo.
+setInterval(() => { if (iso(new Date()) !== TODAY) location.reload(); }, 60000);
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  if (iso(new Date()) !== TODAY) { location.reload(); return; }
+  if (CONFIGURED) reload(false);
+});
+window.addEventListener('online',  () => { if (CONFIGURED) reload(false); });
+window.addEventListener('offline', () => setConn('● Offline', '#8C1D18', '#fff'));
+
+function installIcon() {
+  let icon = '';
+  try {
+    const c = document.createElement('canvas'); c.width = c.height = 192;
+    const x = c.getContext('2d');
+    x.fillStyle = '#8FA583'; x.fillRect(0, 0, 192, 192);
+    x.font = '118px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText('🚜', 96, 104);
+    icon = c.toDataURL('image/png');
+  } catch (e) {}
+  if (icon) {
+    for (const rel of ['apple-touch-icon', 'icon']) {
+      const l = document.createElement('link'); l.rel = rel; l.href = icon; document.head.appendChild(l);
     }
-  })();
-  </script>
+  }
+  const man = { name: 'Fattoria Tasks', short_name: 'Fattoria', start_url: './', display: 'standalone',
+                orientation: 'portrait', background_color: '#EFE7D6', theme_color: '#8FA583',
+                icons: icon ? [{ src: icon, sizes: '192x192', type: 'image/png', purpose: 'any' }] : [] };
+  const l = document.createElement('link');
+  l.rel = 'manifest'; l.href = 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(man));
+  document.head.appendChild(l);
+}
+
+(async function init() {
+  installIcon();
+  renderQuickChips();
+  $('#btn-me').textContent = me === 'Anna' ? 'A' : 'I';
+
+  if (CONFIGURED && window.supabase) {
+    db = window.supabase.createClient(SUPABASE_URL.trim().replace(/\/$/, ''), SUPABASE_ANON_KEY.trim());
+    store = remoteStore;
+    setConn('● …', '#ffffffcc');
+    await reload(false);
+    startRealtime();
+  } else {
+    store = localStore;
+    setConn('● Locale', '#F6D98A');
+    $('#local-banner').hidden = false;
+    $('#local-banner').innerHTML = CONFIGURED
+      ? 'Libreria Supabase non caricata (serve internet). Sto usando i dati salvati su questo dispositivo.'
+      : '<b>Modalità locale.</b> Supabase non è configurato: i dati restano su questo dispositivo, le foto non vengono caricate online e non c\'è sincronizzazione.';
+    await reload(false);
+  }
+})();
+</script>
 </body>
 </html>
