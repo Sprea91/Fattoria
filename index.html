@@ -239,7 +239,14 @@ end $$;
   </div>
 
   <!-- ===================== CONTENUTO ===================== -->
-  <main id="board" class="px-3 pt-3 pb-40 space-y-5"></main>
+  <main id="board" class="px-3 pt-3 pb-40 space-y-5">
+    <!-- Stato iniziale: sostituito dal JS appena i dati arrivano. -->
+    <div class="text-center py-14 px-6">
+      <div class="text-5xl animate-pulse">🌾</div>
+      <p class="mt-3 font-extrabold text-lg">Caricamento…</p>
+      <p class="mt-1 text-sm font-semibold" style="color:#4b5563">Sto recuperando i lavori dal database.</p>
+    </div>
+  </main>
 
   <!-- ===================== FAB NUOVA ATTIVITÀ ===================== -->
   <button id="btn-new"
@@ -352,8 +359,9 @@ end $$;
   };
 
   // ---------- Stato applicazione -------------------------------------------
-  let tasks   = [];
-  let editing = null;                 // id del task in modifica, null = nuovo
+  let tasks      = [];
+  let loadFailed = false;             // true se il primo caricamento non è riuscito
+  let editing    = null;              // id del task in modifica, null = nuovo
   let draft   = { ...DEFAULTS };      // valori dei chip nel form
   const filters = { status: 'Tutti', assigned_to: 'Tutti', category: 'Tutte' };
 
@@ -455,6 +463,10 @@ end $$;
         } else if (payload.new) {
           upsertLocal(payload.new);
         }
+        // Se il primo caricamento era fallito ma ora arrivano eventi, la
+        // connessione è tornata: ricarichiamo tutto invece di mostrare
+        // soltanto il task appena modificato.
+        if (loadFailed) { reload(false); return; }
         render();
       })
       .subscribe((status) => {
@@ -758,6 +770,7 @@ end $$;
       renderChips();
       return;
     }
+    if (el.dataset.act === 'retry')  { reload(true); return; }
     if (el.dataset.act === 'status') { ev.stopPropagation(); setStatus(el.dataset.id, el.dataset.to); return; }
     if (el.dataset.act === 'edit') {
       const t = tasks.find((x) => x.id === el.dataset.id);
@@ -783,12 +796,46 @@ end $$;
   /* ==========================================================================
      AVVIO
      ========================================================================== */
+  // Se il caricamento non riesce (rete debole in stalla, progetto Supabase in
+  // pausa...) NON mostriamo "Nessuna attività": sarebbe fuorviante, sembrerebbe
+  // che non ci sia niente da fare. Mostriamo l'errore con un pulsante Riprova.
+  function showLoadError(e) {
+    renderFilters();
+    const msg = (e && e.message) ? e.message : String(e);
+    const offline = !navigator.onLine;
+    $('#board').innerHTML = `
+      <div class="rounded-2xl border-2 border-red-300 bg-red-50 p-4 text-center">
+        <div class="text-5xl">${offline ? '📵' : '⚠️'}</div>
+        <p class="mt-2 font-black text-lg text-red-900">${offline ? 'Nessuna connessione' : 'Dati non caricati'}</p>
+        <p class="mt-1 text-sm font-semibold text-red-800">
+          ${offline ? 'Il telefono non è connesso a internet. I lavori già salvati sono nel database e ricompariranno appena torni in linea.'
+                    : 'Non riesco a leggere l\'elenco dal database.'}
+        </p>
+        <p class="mt-2 text-xs font-mono break-words text-red-700">${esc(msg)}</p>
+        <button data-act="retry" class="mt-3 w-full min-h-[50px] rounded-xl text-white font-black" style="background:var(--brand)">
+          🔄 Riprova
+        </button>
+      </div>`;
+  }
+
+  // Più caricamenti possono sovrapporsi (avvio + tap su 🔄 + ritorno in primo
+  // piano). Numeriamo le richieste: solo la più recente può aggiornare la
+  // schermata, altrimenti una risposta vecchia e lenta sovrascrive quella nuova.
+  let reloadSeq = 0;
+
   async function reload(showToast) {
+    const mia = ++reloadSeq;
     try {
-      tasks = await store.load();
+      const data = await store.load();
+      if (mia !== reloadSeq) return;          // superata da una richiesta più recente
+      tasks = data;
+      loadFailed = false;
       render();
       if (showToast) toast('Elenco aggiornato');
     } catch (e) {
+      if (mia !== reloadSeq) return;
+      loadFailed = true;
+      showLoadError(e);
       toast('Impossibile caricare i dati: ' + (e.message || e), true);
     }
   }
