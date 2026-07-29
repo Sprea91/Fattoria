@@ -1,0 +1,861 @@
+<!--
+  ============================================================================
+  FATTORIA — Gestione attività  (Single Page PWA, file unico)
+  ============================================================================
+  COSA DEVI FARE PER FARLA FUNZIONARE (3 passi):
+
+  1) Vai su https://supabase.com → crea un progetto gratuito.
+  2) Apri "SQL Editor" e incolla/esegui TUTTO lo script SQL che trovi qui
+     sotto nel blocco "SCHEMA.SQL".
+  3) Vai su "Project Settings → API", copia "Project URL" e la chiave
+     "anon public" e incollale più in basso in questo file, nelle due righe:
+        const SUPABASE_URL      = '...'
+        const SUPABASE_ANON_KEY = '...'
+     (cerca "CONFIGURAZIONE SUPABASE" nello script JS in fondo al file)
+
+  Finché non le inserisci, l'app funziona in MODALITÀ LOCALE (i dati restano
+  solo su questo telefono/PC, nel localStorage del browser) così puoi provarla.
+
+  ============================================================================
+  SCHEMA.SQL  →  copia da "-- INIZIO" a "-- FINE" nell'SQL Editor di Supabase
+  ============================================================================
+
+-- INIZIO ---------------------------------------------------------------------
+
+-- Serve per gen_random_uuid() (su Supabase è già attiva, la riga non fa danni)
+create extension if not exists "pgcrypto";
+
+-- 1) TABELLA
+create table if not exists public.tasks (
+  id             uuid        primary key default gen_random_uuid(),
+  title          text        not null,
+  category       text        not null default 'Animali',
+  priority       text        not null default 'Media',
+  assigned_to    text        not null default 'Io',
+  due_date       date,
+  estimated_time text,
+  status         text        not null default 'Da fare',
+  notes          text,
+  created_at     timestamptz not null default now()
+);
+
+-- Indici per ordinamenti/filtri veloci
+create index if not exists tasks_due_date_idx on public.tasks (due_date);
+create index if not exists tasks_status_idx   on public.tasks (status);
+
+-- 2) SICUREZZA (accesso aperto: chiunque abbia il link e la chiave anon
+--    può leggere e scrivere. Va bene per uso familiare/privato.)
+alter table public.tasks enable row level security;
+
+drop policy if exists "tasks_select_all" on public.tasks;
+drop policy if exists "tasks_insert_all" on public.tasks;
+drop policy if exists "tasks_update_all" on public.tasks;
+drop policy if exists "tasks_delete_all" on public.tasks;
+
+create policy "tasks_select_all" on public.tasks for select using (true);
+create policy "tasks_insert_all" on public.tasks for insert with check (true);
+create policy "tasks_update_all" on public.tasks for update using (true) with check (true);
+create policy "tasks_delete_all" on public.tasks for delete using (true);
+
+-- 3) REALTIME (sincronizzazione istantanea tra telefoni)
+--    replica identity full serve per ricevere anche i dati delle DELETE.
+alter table public.tasks replica identity full;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.tasks;
+exception
+  when duplicate_object then null;   -- già pubblicata: ok
+end $$;
+
+-- FINE -----------------------------------------------------------------------
+
+  ============================================================================
+  PUBBLICAZIONE SU GITHUB PAGES
+  ============================================================================
+  1) Crea un repository su GitHub (consigliato: PRIVATO non funziona con
+     Pages nel piano free → se il repo è pubblico la chiave anon sarà visibile:
+     è accettabile solo perché i dati sono attività di fattoria).
+  2) Carica questo file con nome esatto: index.html
+  3) Settings → Pages → Source: "Deploy from a branch" → Branch: main / (root)
+  4) Dopo ~1 minuto l'app è online su https://TUONOME.github.io/NOMEREPO/
+  5) Sul telefono apri il link → Condividi/Menu → "Aggiungi alla schermata Home"
+
+  NOTA ONESTA SULL'OFFLINE: essendo un file unico non c'è un Service Worker
+  (tecnicamente deve stare in un file .js separato). Quindi serve la connessione
+  per aprire l'app. Se in futuro vuoi l'offline vero, chiedimi manifest.json + sw.js.
+  ============================================================================
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5">
+<meta name="theme-color" content="#15803d">
+<meta name="color-scheme" content="light">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Fattoria">
+<title>Fattoria — Attività</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { theme: { extend: { fontFamily: { sans: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'] } } } };
+</script>
+
+<style>
+  /* ---- Palette pensata per la LEGGIBILITÀ SOTTO IL SOLE ----
+     sfondo chiaro non bianco puro, testi quasi neri, badge a tinta piena. */
+  :root {
+    --bg:      #eef1ec;
+    --surface: #ffffff;
+    --line:    #d5dbd3;
+    --ink:     #14171a;
+    --ink-2:   #4b5563;
+    --brand:   #15803d;
+  }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: contain;
+  }
+  /* niente zoom automatico su iOS quando si tocca un campo: min 16px */
+  input, select, textarea, button { font-size: 16px; font-family: inherit; }
+
+  .no-sb { scrollbar-width: none; -ms-overflow-style: none; }
+  .no-sb::-webkit-scrollbar { display: none; }
+
+  /* ---------- BADGE ---------- */
+  .badge {
+    display: inline-flex; align-items: center; gap: .25rem;
+    font-size: .75rem; font-weight: 800; line-height: 1;
+    padding: .38rem .5rem; border-radius: .5rem; white-space: nowrap;
+    letter-spacing: .01em;
+  }
+  .b-pri-Alta   { background: #c81e1e; color: #fff; }
+  .b-pri-Media  { background: #b45309; color: #fff; }
+  .b-pri-Bassa  { background: #475569; color: #fff; }
+
+  .b-time       { background: #e0e7ff; color: #312e81; border: 1px solid #c7d2fe; }
+  .b-cat        { background: #ecfdf5; color: #14532d; border: 1px solid #bbf7d0; }
+
+  .b-who-Io       { background: #dbeafe; color: #1e3a8a; border: 1px solid #bfdbfe; }
+  .b-who-Anna     { background: #fce7f3; color: #9d174d; border: 1px solid #fbcfe8; }
+  .b-who-Entrambi { background: #ede9fe; color: #5b21b6; border: 1px solid #ddd6fe; }
+
+  .b-late       { background: #7f1d1d; color: #fff; }
+  .b-today      { background: #92400e; color: #fff; }
+  .b-date       { background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }
+
+  /* ---------- SCHEDA TASK ---------- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left-width: 6px;
+    border-radius: 1rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,.06);
+    padding: .875rem;
+    text-align: left; width: 100%;
+    transition: transform .08s ease;
+  }
+  .card:active { transform: scale(.985); }
+  .card.pri-Alta  { border-left-color: #c81e1e; }
+  .card.pri-Media { border-left-color: #d97706; }
+  .card.pri-Bassa { border-left-color: #94a3b8; }
+  .card.is-late   { background: #fff5f5; border-color: #fca5a5; }
+  .card.is-done   { background: #f6f8f6; }
+  .card.is-done .card-title { text-decoration: line-through; color: #6b7280; }
+  .card-title { font-size: 1.0625rem; font-weight: 800; line-height: 1.25; }
+
+  /* ---------- BOTTONI AZIONE ---------- */
+  .act {
+    display: inline-flex; align-items: center; justify-content: center; gap: .35rem;
+    min-height: 46px; padding: 0 .9rem; border-radius: .75rem;
+    font-weight: 800; font-size: .9375rem; border: 2px solid transparent; flex: 1 1 0;
+  }
+  .act-go   { background: #1d4ed8; color: #fff; }
+  .act-done { background: var(--brand); color: #fff; }
+  .act-back { background: #fff; color: #374151; border-color: var(--line); }
+  .act:active { filter: brightness(.92); }
+
+  /* ---------- CHIP (filtri e form) ---------- */
+  .chip {
+    display: inline-flex; align-items: center; gap: .3rem;
+    min-height: 42px; padding: 0 .8rem; border-radius: .75rem;
+    background: #fff; color: #1f2937; border: 2px solid var(--line);
+    font-weight: 700; font-size: .875rem; white-space: nowrap;
+  }
+  .chip[aria-pressed="true"] { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .chip-lg { min-height: 50px; font-size: 1rem; }
+
+  /* ---------- CAMPI FORM ---------- */
+  .field {
+    width: 100%; min-height: 50px; padding: .7rem .8rem;
+    background: #fff; border: 2px solid var(--line); border-radius: .75rem;
+    color: var(--ink); font-weight: 600;
+  }
+  .field:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px #15803d33; }
+  .lbl { font-size: .8125rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); }
+
+  /* ---------- SHEET / MODALE ---------- */
+  #sheet[hidden] { display: none; }
+  .sheet-panel { animation: up .22s cubic-bezier(.2,.8,.2,1); }
+  @keyframes up { from { transform: translateY(14px); opacity: .6 } to { transform: none; opacity: 1 } }
+
+  .safe-b { padding-bottom: env(safe-area-inset-bottom, 0px); }
+</style>
+
+<body class="min-h-screen">
+
+  <!-- ===================== HEADER ===================== -->
+  <header class="sticky top-0 z-30 bg-white/95 backdrop-blur border-b" style="border-color:var(--line)">
+    <div class="px-3 pt-3 pb-2 flex items-center gap-2">
+      <h1 class="text-xl font-black tracking-tight flex items-center gap-2">
+        <span>🐄</span><span>Fattoria</span>
+      </h1>
+
+      <span id="conn" class="badge b-date ml-1">…</span>
+
+      <div class="ml-auto flex items-center gap-1.5">
+        <button id="btn-refresh" class="w-11 h-11 rounded-xl border-2 grid place-items-center text-lg"
+                style="border-color:var(--line)" aria-label="Aggiorna elenco">🔄</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===================== FILTRI RAPIDI ===================== -->
+  <section class="px-3 pt-3 space-y-2" aria-label="Filtri rapidi">
+    <div id="f-status"   class="flex gap-2 overflow-x-auto no-sb pb-0.5"></div>
+    <div id="f-assignee" class="flex gap-2 overflow-x-auto no-sb pb-0.5"></div>
+    <div id="f-category" class="flex gap-2 overflow-x-auto no-sb pb-0.5"></div>
+  </section>
+
+  <!-- ===================== BANNER MODALITÀ LOCALE ===================== -->
+  <div id="local-banner" hidden class="mx-3 mt-3 rounded-xl border-2 border-amber-400 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+    <b>Modalità locale.</b> Supabase non è configurato: i dati restano solo su questo dispositivo
+    e non si sincronizzano. Inserisci <code>SUPABASE_URL</code> e <code>SUPABASE_ANON_KEY</code>
+    nel file <code>index.html</code>.
+  </div>
+
+  <!-- ===================== CONTENUTO ===================== -->
+  <main id="board" class="px-3 pt-3 pb-40 space-y-5"></main>
+
+  <!-- ===================== FAB NUOVA ATTIVITÀ ===================== -->
+  <button id="btn-new"
+          class="fixed z-30 right-4 bottom-5 h-16 pl-5 pr-6 rounded-full text-white font-black text-lg shadow-xl flex items-center gap-2"
+          style="background:var(--brand); margin-bottom: env(safe-area-inset-bottom,0px)">
+    <span class="text-2xl leading-none">＋</span> Nuovo
+  </button>
+
+  <!-- ===================== SHEET FORM ===================== -->
+  <div id="sheet" hidden class="fixed inset-0 z-40">
+    <div id="sheet-bg" class="absolute inset-0 bg-black/50"></div>
+
+    <div class="absolute inset-x-0 bottom-0 max-h-[94vh] flex flex-col sheet-panel bg-white rounded-t-3xl overflow-hidden">
+      <div class="flex items-center gap-2 px-4 py-3 border-b" style="border-color:var(--line)">
+        <h2 id="sheet-title" class="text-lg font-black">Nuova attività</h2>
+        <button id="btn-close" class="ml-auto w-11 h-11 rounded-xl border-2 grid place-items-center text-xl font-bold"
+                style="border-color:var(--line)" aria-label="Chiudi">✕</button>
+      </div>
+
+      <form id="form" class="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div>
+          <label class="lbl" for="f-title">Cosa c'è da fare</label>
+          <input id="f-title" name="title" class="field mt-1.5" required maxlength="140"
+                 placeholder="Es. Controllare recinto pascolo sud" autocomplete="off">
+        </div>
+
+        <div>
+          <span class="lbl">Categoria</span>
+          <div id="c-category" class="mt-1.5 grid grid-cols-2 gap-2"></div>
+        </div>
+
+        <div>
+          <span class="lbl">Priorità</span>
+          <div id="c-priority" class="mt-1.5 flex gap-2"></div>
+        </div>
+
+        <div>
+          <span class="lbl">Chi lo fa</span>
+          <div id="c-assigned_to" class="mt-1.5 flex gap-2"></div>
+        </div>
+
+        <div>
+          <span class="lbl">Tempo necessario</span>
+          <div id="c-estimated_time" class="mt-1.5 flex gap-2 flex-wrap"></div>
+        </div>
+
+        <div>
+          <span class="lbl">Scadenza</span>
+          <div id="c-quickdate" class="mt-1.5 flex gap-2 overflow-x-auto no-sb pb-0.5"></div>
+          <input id="f-due" name="due_date" type="date" class="field mt-2">
+        </div>
+
+        <div id="wrap-status" hidden>
+          <span class="lbl">Stato</span>
+          <div id="c-status" class="mt-1.5 flex gap-2"></div>
+        </div>
+
+        <div>
+          <label class="lbl" for="f-notes">Note (opzionale)</label>
+          <textarea id="f-notes" name="notes" rows="3" class="field mt-1.5" placeholder="Dettagli, materiali, dove…"></textarea>
+        </div>
+
+        <button type="button" id="btn-delete" hidden
+                class="w-full min-h-[50px] rounded-xl border-2 border-red-300 bg-red-50 text-red-800 font-extrabold">
+          🗑 Elimina attività
+        </button>
+      </form>
+
+      <div class="px-4 py-3 border-t safe-b bg-white" style="border-color:var(--line)">
+        <button type="submit" form="form" id="btn-save"
+                class="w-full min-h-[56px] rounded-xl text-white font-black text-lg" style="background:var(--brand)">
+          Salva
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== TOAST ===================== -->
+  <div id="toast" hidden class="fixed z-50 left-1/2 -translate-x-1/2 bottom-28 px-4 py-3 rounded-xl bg-slate-900 text-white font-bold text-sm shadow-xl max-w-[90vw] text-center"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script>
+  'use strict';
+  /* ==========================================================================
+     CONFIGURAZIONE SUPABASE  ←←← INCOLLA QUI I TUOI DUE VALORI
+     ========================================================================== */
+  const SUPABASE_URL      = 'https://aiowitawkzyohycsxkxi.supabase.co';   // es. https://abcdefgh.supabase.co
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpb3dpdGF3a3p5b2h5Y3N4a3hpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzMjgwNjMsImV4cCI6MjEwMDkwNDA2M30.w2PA_VHPZc-2LQJHy__yK73XnxVwGDOwKyiYQN5klXE';      // chiave "anon public"
+  /* ========================================================================== */
+
+  const CONFIGURED = /^https:\/\/.+\.supabase\.co\/?$/.test(SUPABASE_URL.trim())
+                     && SUPABASE_ANON_KEY.trim().length > 40;
+
+  // ---------- Vocabolari (devono combaciare con i valori salvati sul DB) -----
+  const CATEGORIES = [
+    { v: 'Animali',            e: '🐑' },
+    { v: 'Recinti/Strutture',  e: '🚧' },
+    { v: 'Attrezzatura',       e: '🚜' },
+    { v: 'Manutenzione',       e: '🔧' }
+  ];
+  const PRIORITIES = ['Alta', 'Media', 'Bassa'];
+  const ASSIGNEES  = ['Io', 'Anna', 'Entrambi'];
+  const TIMES      = ['15m', '30m', '1h', '2h', '2h+'];
+  const STATUSES   = ['Da fare', 'In corso', 'Completato'];
+  const PRI_RANK   = { Alta: 0, Media: 1, Bassa: 2 };
+
+  const DEFAULTS = {
+    category: 'Animali', priority: 'Media', assigned_to: 'Io',
+    estimated_time: '30m', status: 'Da fare'
+  };
+
+  // ---------- Stato applicazione -------------------------------------------
+  let tasks   = [];
+  let editing = null;                 // id del task in modifica, null = nuovo
+  let draft   = { ...DEFAULTS };      // valori dei chip nel form
+  const filters = { status: 'Tutti', assigned_to: 'Tutti', category: 'Tutte' };
+
+  const $  = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const catEmoji = (v) => (CATEGORIES.find((c) => c.v === v) || {}).e || '📌';
+
+  /* ==========================================================================
+     DATE (tutto in locale, formato ISO YYYY-MM-DD come la colonna `date`)
+     ========================================================================== */
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const TODAY = iso(new Date());
+  const plusDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
+
+  function daysFromToday(isoDate) {
+    if (!isoDate) return null;
+    const [y, m, d] = isoDate.split('-').map(Number);
+    const a = new Date(y, m - 1, d), b = new Date();
+    b.setHours(0, 0, 0, 0);
+    return Math.round((a - b) / 86400000);
+  }
+  function dateLabel(isoDate) {
+    const n = daysFromToday(isoDate);
+    if (n === null) return '';
+    if (n === 0) return 'Oggi';
+    if (n === 1) return 'Domani';
+    if (n === -1) return 'Ieri';
+    if (n < -1) return `${Math.abs(n)} gg in ritardo`;
+    const [y, m, d] = isoDate.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
+  }
+
+  /* ==========================================================================
+     LIVELLO DATI — due implementazioni con la stessa interfaccia:
+     Supabase (se configurato) oppure localStorage.
+     ========================================================================== */
+  let db = null, channel = null;
+  const LS_KEY = 'fattoria_tasks_v1';
+
+  const localStore = {
+    read()  { try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch { return []; } },
+    write(v) { localStorage.setItem(LS_KEY, JSON.stringify(v)); },
+    async load() { return this.read(); },
+    async insert(row) {
+      const t = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...row };
+      const all = this.read(); all.push(t); this.write(all); return t;
+    },
+    async update(id, patch) {
+      const all = this.read(); const i = all.findIndex((t) => t.id === id);
+      if (i < 0) throw new Error('Attività non trovata');
+      all[i] = { ...all[i], ...patch }; this.write(all); return all[i];
+    },
+    async remove(id) { this.write(this.read().filter((t) => t.id !== id)); }
+  };
+
+  const remoteStore = {
+    async load() {
+      const { data, error } = await db.from('tasks').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    async insert(row) {
+      const { data, error } = await db.from('tasks').insert(row).select().single();
+      if (error) throw error; return data;
+    },
+    async update(id, patch) {
+      const { data, error } = await db.from('tasks').update(patch).eq('id', id).select().single();
+      if (error) throw error; return data;
+    },
+    async remove(id) {
+      const { error } = await db.from('tasks').delete().eq('id', id);
+      if (error) throw error;
+    }
+  };
+
+  let store = localStore;
+
+  /* ==========================================================================
+     REALTIME — listener postgres_changes su INSERT / UPDATE / DELETE
+     ========================================================================== */
+  function setConn(text, cls) {
+    const el = $('#conn');
+    el.textContent = text;
+    el.className = 'badge ml-1 ' + cls;
+  }
+
+  function upsertLocal(row) {
+    const i = tasks.findIndex((t) => t.id === row.id);
+    if (i < 0) tasks.unshift(row); else tasks[i] = { ...tasks[i], ...row };
+  }
+
+  function startRealtime() {
+    channel = db.channel('tasks-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload) => {
+        if (payload.eventType === 'DELETE') {
+          const id = payload.old && payload.old.id;
+          if (id) tasks = tasks.filter((t) => t.id !== id);
+        } else if (payload.new) {
+          upsertLocal(payload.new);
+        }
+        render();
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED')                             setConn('● Live', 'b-cat');
+        else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setConn('● Offline', 'b-late');
+        else                                                     setConn('● …', 'b-date');
+      });
+  }
+
+  /* ==========================================================================
+     FILTRI
+     ========================================================================== */
+  function renderFilters() {
+    const row = (host, key, values, allLabel) => {
+      const opts = [allLabel, ...values];
+      host.innerHTML = opts.map((v) => {
+        const on = filters[key] === v;
+        const label = (key === 'category' && v !== allLabel) ? `${catEmoji(v)} ${v}` : v;
+        return `<button type="button" class="chip" aria-pressed="${on}"
+                  data-filter="${key}" data-value="${esc(v)}">${esc(label)}</button>`;
+      }).join('');
+    };
+    row($('#f-status'),   'status',      STATUSES,                  'Tutti');
+    row($('#f-assignee'), 'assigned_to', ASSIGNEES,                 'Tutti');
+    row($('#f-category'), 'category',    CATEGORIES.map((c) => c.v), 'Tutte');
+  }
+
+  function visible() {
+    return tasks.filter((t) =>
+      (filters.status      === 'Tutti' || t.status      === filters.status) &&
+      (filters.assigned_to === 'Tutti' || t.assigned_to === filters.assigned_to) &&
+      (filters.category    === 'Tutte' || t.category    === filters.category)
+    );
+  }
+
+  const byUrgency = (a, b) => {
+    const da = a.due_date ? daysFromToday(a.due_date) : 9e5;
+    const dbb = b.due_date ? daysFromToday(b.due_date) : 9e5;
+    if (da !== dbb) return da - dbb;
+    const pa = PRI_RANK[a.priority] ?? 1, pb = PRI_RANK[b.priority] ?? 1;
+    if (pa !== pb) return pa - pb;
+    return String(b.created_at).localeCompare(String(a.created_at));
+  };
+
+  /* ==========================================================================
+     RENDER SCHEDE
+     ========================================================================== */
+  function badges(t) {
+    const out = [`<span class="badge b-pri-${esc(t.priority)}">${t.priority === 'Alta' ? '🔥 ' : ''}${esc(t.priority)}</span>`];
+    if (t.estimated_time) out.push(`<span class="badge b-time">⏱️ ${esc(t.estimated_time)}</span>`);
+    out.push(`<span class="badge b-who-${esc(t.assigned_to)}">👤 ${esc(t.assigned_to)}</span>`);
+    out.push(`<span class="badge b-cat">${catEmoji(t.category)} ${esc(t.category)}</span>`);
+
+    if (t.due_date) {
+      const n = daysFromToday(t.due_date);
+      const done = t.status === 'Completato';
+      const cls = done ? 'b-date' : n < 0 ? 'b-late' : n === 0 ? 'b-today' : 'b-date';
+      out.push(`<span class="badge ${cls}">📅 ${esc(dateLabel(t.due_date))}</span>`);
+    }
+    return out.join('');
+  }
+
+  function actions(t) {
+    if (t.status === 'Da fare') return `
+      <button class="act act-go"   data-act="status" data-to="In corso"   data-id="${t.id}">▶ Inizia</button>
+      <button class="act act-done" data-act="status" data-to="Completato" data-id="${t.id}">✓ Fatto</button>`;
+    if (t.status === 'In corso') return `
+      <button class="act act-done" data-act="status" data-to="Completato" data-id="${t.id}">✓ Fatto</button>
+      <button class="act act-back" data-act="status" data-to="Da fare"    data-id="${t.id}">↩ Sospendi</button>`;
+    return `
+      <button class="act act-back" data-act="status" data-to="Da fare"    data-id="${t.id}">↩ Riapri</button>`;
+  }
+
+  function cardHTML(t) {
+    const late = t.status !== 'Completato' && t.due_date && daysFromToday(t.due_date) < 0;
+    const cls  = ['card', `pri-${t.priority}`, late ? 'is-late' : '', t.status === 'Completato' ? 'is-done' : ''].join(' ');
+    return `
+      <article class="${cls}" data-act="edit" data-id="${t.id}" role="button" tabindex="0">
+        <div class="flex items-start gap-2">
+          <h3 class="card-title flex-1">${esc(t.title)}</h3>
+          <span class="text-slate-400 text-xl leading-none mt-0.5">›</span>
+        </div>
+        <div class="flex flex-wrap gap-1.5 mt-2.5">${badges(t)}</div>
+        ${t.notes ? `<p class="mt-2 text-sm font-semibold line-clamp-2" style="color:#374151">${esc(t.notes)}</p>` : ''}
+        <div class="flex gap-2 mt-3">${actions(t)}</div>
+      </article>`;
+  }
+
+  function section(title, emoji, list, tone) {
+    if (!list.length) return '';
+    const toneCls = tone === 'hot' ? 'text-red-800' : tone === 'go' ? 'text-blue-800' : 'text-slate-800';
+    return `
+      <section>
+        <h2 class="flex items-center gap-2 mb-2 font-black text-base ${toneCls}">
+          <span>${emoji}</span><span>${title}</span>
+          <span class="badge b-date">${list.length}</span>
+        </h2>
+        <div class="space-y-2.5">${list.map(cardHTML).join('')}</div>
+      </section>`;
+  }
+
+  function render() {
+    renderFilters();
+    const v = visible();
+
+    const inCorso  = v.filter((t) => t.status === 'In corso').sort(byUrgency);
+    const aperti   = v.filter((t) => t.status === 'Da fare');
+    const urgenti  = aperti.filter((t) => t.due_date && daysFromToday(t.due_date) <= 0).sort(byUrgency);
+    const settimana = aperti.filter((t) => { const n = daysFromToday(t.due_date); return n !== null && n > 0 && n <= 7; }).sort(byUrgency);
+    const dopo     = aperti.filter((t) => { const n = daysFromToday(t.due_date); return n === null || n > 7; }).sort(byUrgency);
+    const fatti    = v.filter((t) => t.status === 'Completato')
+                      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+                      .slice(0, 25);
+
+    let html = '';
+    html += section('Da fare oggi / in ritardo', '⚠️', urgenti, 'hot');
+    html += section('In corso',                  '🔄', inCorso, 'go');
+    html += section('Prossimi 7 giorni',         '🗓️', settimana);
+    html += section('Più avanti / senza data',   '📥', dopo);
+    html += section('Completati',                '✅', fatti);
+
+    if (!html) {
+      const filtroAttivo = filters.status !== 'Tutti' || filters.assigned_to !== 'Tutti' || filters.category !== 'Tutte';
+      html = `<div class="text-center py-14 px-6">
+                <div class="text-6xl">${filtroAttivo ? '🔍' : '🌾'}</div>
+                <p class="mt-3 font-extrabold text-lg">${filtroAttivo ? 'Nessuna attività con questi filtri' : 'Nessuna attività'}</p>
+                <p class="mt-1 text-sm font-medium text-slate-600">
+                  ${filtroAttivo ? 'Prova a toccare “Tutti / Tutte”.' : 'Tocca “＋ Nuovo” in basso a destra per iniziare.'}
+                </p>
+              </div>`;
+    }
+    $('#board').innerHTML = html;
+  }
+
+  /* ==========================================================================
+     TOAST
+     ========================================================================== */
+  let toastTimer = null;
+  function toast(msg, isError = false) {
+    const el = $('#toast');
+    el.textContent = msg;
+    el.style.background = isError ? '#991b1b' : '#0f172a';
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.hidden = true; }, isError ? 4500 : 2200);
+  }
+
+  /* ==========================================================================
+     AZIONI RAPIDE (1 tap) — aggiornamento ottimistico + rollback se errore
+     ========================================================================== */
+  async function setStatus(id, to) {
+    const i = tasks.findIndex((t) => t.id === id);
+    if (i < 0) return;
+    const before = tasks[i];
+    tasks[i] = { ...before, status: to };
+    render();
+    try {
+      await store.update(id, { status: to });
+      if (navigator.vibrate) navigator.vibrate(15);
+      toast(to === 'Completato' ? '✓ Completato' : to === 'In corso' ? '▶ In corso' : '↩ Rimesso in “Da fare”');
+    } catch (e) {
+      tasks[i] = before; render();
+      toast('Errore salvataggio: ' + (e.message || e), true);
+    }
+  }
+
+  /* ==========================================================================
+     FORM (sheet) — chip, apertura in nuovo/modifica, salvataggio, eliminazione
+     ========================================================================== */
+  function chipRow(hostId, field, values, big = false) {
+    $(hostId).innerHTML = values.map((v) => {
+      const val = typeof v === 'object' ? v.v : v;
+      const lab = typeof v === 'object' ? `${v.e} ${v.v}` : v;
+      return `<button type="button" class="chip ${big ? 'chip-lg' : ''} justify-center flex-1"
+                aria-pressed="${draft[field] === val}" data-set="${field}" data-value="${esc(val)}">${esc(lab)}</button>`;
+    }).join('');
+  }
+
+  function renderChips() {
+    chipRow('#c-category',       'category',       CATEGORIES);
+    chipRow('#c-priority',       'priority',       PRIORITIES, true);
+    chipRow('#c-assigned_to',    'assigned_to',    ASSIGNEES,  true);
+    chipRow('#c-estimated_time', 'estimated_time', TIMES);
+    chipRow('#c-status',         'status',         STATUSES);
+
+    const cur = $('#f-due').value;
+    const quick = [
+      { lab: 'Oggi',    val: TODAY },
+      { lab: 'Domani',  val: plusDays(1) },
+      { lab: 'Fra 3 gg', val: plusDays(3) },
+      { lab: 'Fra 1 sett.', val: plusDays(7) },
+      { lab: 'Nessuna', val: '' }
+    ];
+    $('#c-quickdate').innerHTML = quick.map((q) =>
+      `<button type="button" class="chip" aria-pressed="${cur === q.val}" data-date="${q.val}">${q.lab}</button>`).join('');
+  }
+
+  function openSheet(task) {
+    editing = task ? task.id : null;
+    draft = task
+      ? { category: task.category, priority: task.priority, assigned_to: task.assigned_to,
+          estimated_time: task.estimated_time || '', status: task.status }
+      : { ...DEFAULTS };
+
+    $('#sheet-title').textContent = task ? 'Modifica attività' : 'Nuova attività';
+    $('#f-title').value = task ? task.title : '';
+    $('#f-notes').value = task ? (task.notes || '') : '';
+    $('#f-due').value   = task ? (task.due_date || '') : '';
+    $('#wrap-status').hidden = !task;
+    $('#btn-delete').hidden  = !task;
+    $('#btn-delete').textContent = '🗑 Elimina attività';
+    $('#btn-delete').dataset.armed = '';
+
+    renderChips();
+    $('#sheet').hidden = false;
+    document.body.style.overflow = 'hidden';
+    if (!task) setTimeout(() => $('#f-title').focus(), 120);
+  }
+
+  function closeSheet() {
+    $('#sheet').hidden = true;
+    document.body.style.overflow = '';
+    editing = null;
+  }
+
+  async function submitForm(ev) {
+    ev.preventDefault();
+    const title = $('#f-title').value.trim();
+    if (!title) { toast('Scrivi cosa c\'è da fare', true); $('#f-title').focus(); return; }
+
+    const row = {
+      title,
+      category:       draft.category,
+      priority:       draft.priority,
+      assigned_to:    draft.assigned_to,
+      estimated_time: draft.estimated_time || null,
+      status:         editing ? draft.status : 'Da fare',
+      due_date:       $('#f-due').value || null,
+      notes:          $('#f-notes').value.trim() || null
+    };
+
+    const btn = $('#btn-save');
+    btn.disabled = true; btn.textContent = 'Salvataggio…';
+    try {
+      if (editing) {
+        const saved = await store.update(editing, row);
+        upsertLocal(saved || { id: editing, ...row });
+        toast('Modifiche salvate');
+      } else {
+        const saved = await store.insert(row);
+        if (saved) upsertLocal(saved);
+        toast('Attività aggiunta');
+      }
+      render();
+      closeSheet();
+    } catch (e) {
+      toast('Errore: ' + (e.message || e), true);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Salva';
+    }
+  }
+
+  async function deleteCurrent() {
+    const btn = $('#btn-delete');
+    if (btn.dataset.armed !== '1') {          // conferma in due tap, senza popup di sistema
+      btn.dataset.armed = '1';
+      btn.textContent = '⚠️ Tocca di nuovo per eliminare';
+      setTimeout(() => { if (btn.dataset.armed === '1') { btn.dataset.armed = ''; btn.textContent = '🗑 Elimina attività'; } }, 4000);
+      return;
+    }
+    const id = editing;
+    try {
+      await store.remove(id);
+      tasks = tasks.filter((t) => t.id !== id);
+      render(); closeSheet(); toast('Attività eliminata');
+    } catch (e) {
+      toast('Errore eliminazione: ' + (e.message || e), true);
+    }
+  }
+
+  /* ==========================================================================
+     EVENTI (delegazione: un solo listener per tutti i tap)
+     ========================================================================== */
+  document.addEventListener('click', (ev) => {
+    const el = ev.target.closest('[data-act],[data-filter],[data-set],[data-date]');
+    if (!el) return;
+
+    if (el.dataset.filter) {
+      filters[el.dataset.filter] = el.dataset.value;
+      render();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    if (el.dataset.set) {
+      draft[el.dataset.set] = el.dataset.value;
+      renderChips();
+      return;
+    }
+    if (el.dataset.date !== undefined && el.hasAttribute('data-date')) {
+      $('#f-due').value = el.dataset.date;
+      renderChips();
+      return;
+    }
+    if (el.dataset.act === 'status') { ev.stopPropagation(); setStatus(el.dataset.id, el.dataset.to); return; }
+    if (el.dataset.act === 'edit') {
+      const t = tasks.find((x) => x.id === el.dataset.id);
+      if (t) openSheet(t);
+    }
+  });
+
+  $('#form').addEventListener('submit', submitForm);
+  $('#btn-new').addEventListener('click', () => openSheet(null));
+  $('#btn-close').addEventListener('click', closeSheet);
+  $('#sheet-bg').addEventListener('click', closeSheet);
+  $('#btn-delete').addEventListener('click', deleteCurrent);
+  $('#f-due').addEventListener('change', renderChips);
+  $('#btn-refresh').addEventListener('click', () => reload(true));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
+
+  // Sul telefono la connessione realtime può cadere in background:
+  // quando l'app torna in primo piano ricarichiamo l'elenco.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && CONFIGURED) reload(false); });
+  window.addEventListener('online',  () => { if (CONFIGURED) reload(false); });
+  window.addEventListener('offline', () => setConn('● Offline', 'b-late'));
+
+  /* ==========================================================================
+     AVVIO
+     ========================================================================== */
+  async function reload(showToast) {
+    try {
+      tasks = await store.load();
+      render();
+      if (showToast) toast('Elenco aggiornato');
+    } catch (e) {
+      toast('Impossibile caricare i dati: ' + (e.message || e), true);
+    }
+  }
+
+  function installIconAndManifest() {
+    // Icona generata a runtime (così il file resta uno solo) + manifest inline.
+    let icon = '';
+    try {
+      const c = document.createElement('canvas'); c.width = c.height = 192;
+      const x = c.getContext('2d');
+      x.fillStyle = '#15803d'; x.fillRect(0, 0, 192, 192);
+      x.font = '120px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillText('🐄', 96, 104);
+      icon = c.toDataURL('image/png');
+    } catch { /* ambiente senza canvas: si prosegue senza icona */ }
+
+    if (icon) {
+      const apple = document.createElement('link');
+      apple.rel = 'apple-touch-icon'; apple.href = icon;
+      document.head.appendChild(apple);
+      const fav = document.createElement('link');
+      fav.rel = 'icon'; fav.href = icon;
+      document.head.appendChild(fav);
+    }
+    const manifest = {
+      name: 'Fattoria — Attività', short_name: 'Fattoria', start_url: './',
+      display: 'standalone', orientation: 'portrait',
+      background_color: '#eef1ec', theme_color: '#15803d',
+      icons: icon ? [{ src: icon, sizes: '192x192', type: 'image/png', purpose: 'any' }] : []
+    };
+    const link = document.createElement('link');
+    link.rel = 'manifest';
+    link.href = 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(manifest));
+    document.head.appendChild(link);
+  }
+
+  (async function init() {
+    installIconAndManifest();
+
+    if (CONFIGURED && window.supabase) {
+      db = window.supabase.createClient(SUPABASE_URL.trim().replace(/\/$/, ''), SUPABASE_ANON_KEY.trim());
+      store = remoteStore;
+      setConn('● …', 'b-date');
+      await reload(false);
+      startRealtime();
+    } else {
+      store = localStore;
+      $('#local-banner').hidden = false;
+      setConn('● Locale', 'b-today');
+
+      // Diagnosi: se hai già incollato qualcosa ma non va, ti dico cosa non torna.
+      const u = SUPABASE_URL.trim(), k = SUPABASE_ANON_KEY.trim();
+      const problemi = [];
+      if (/^INCOLLA_QUI/.test(u)) problemi.push('la Project URL non è ancora stata inserita');
+      else if (u.includes('/dashboard/')) problemi.push('hai incollato l\'indirizzo della dashboard: serve https://TUOCODICE.supabase.co');
+      else if (!/^https:\/\/[a-z0-9-]+\.supabase\.(co|in)\/?$/i.test(u)) problemi.push('la Project URL non ha il formato https://TUOCODICE.supabase.co');
+      if (/^INCOLLA_QUI/.test(k)) problemi.push('la chiave non è ancora stata inserita');
+      else if (k.length <= 20) problemi.push('la chiave sembra troppo corta (incompleta?)');
+      else if (/^sb_secret|service_role/i.test(k)) problemi.push('stai usando la chiave SEGRETA: usa "anon public" oppure "publishable key"');
+      if (problemi.length) {
+        $('#local-banner').insertAdjacentHTML('beforeend',
+          '<ul class="mt-2 list-disc pl-5 space-y-1">' + problemi.map((p) => `<li>${esc(p)}</li>`).join('') + '</ul>');
+      }
+      if (CONFIGURED && !window.supabase) toast('Libreria Supabase non caricata (serve internet). Uso i dati locali.', true);
+      await reload(false);
+    }
+  })();
+  </script>
+</body>
+</html>
