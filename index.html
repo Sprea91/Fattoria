@@ -284,6 +284,36 @@
   <button id="lente-chiudi" class="absolute top-4 right-4 w-12 h-12 rounded-full bg-white/90 text-2xl font-black">✕</button>
 </div>
 
+<!-- ===================== ACCESSO ===================== -->
+<div id="accesso" hidden class="fixed inset-0 z-[80] flex items-center justify-center p-4" style="background:var(--sabbia)">
+  <div class="scheda w-full" style="max-width:26rem">
+    <h1 class="text-xl font-black flex items-center gap-2"><span>🚜</span><span>Fattoria Tasks</span></h1>
+    <p id="accesso-sotto" class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">Entra con la tua email.</p>
+
+    <div id="accesso-modulo" class="mt-4 space-y-3">
+      <div><label class="didascalia" for="ac-email">Email</label>
+        <input id="ac-email" type="email" inputmode="email" autocomplete="username" class="campo mt-1.5" placeholder="nome@esempio.it"></div>
+      <div id="ac-riga-password"><label class="didascalia" for="ac-password">Password</label>
+        <input id="ac-password" type="password" autocomplete="current-password" class="campo mt-1.5" placeholder="••••••••"></div>
+      <p id="ac-messaggio" hidden class="text-sm font-bold"></p>
+      <button id="ac-entra" class="bot bot-verde bot-largo">Entra</button>
+      <button id="ac-dimenticata" class="bot bot-chiaro w-full">Password dimenticata?</button>
+      <button id="ac-annulla" hidden class="bot bot-chiaro w-full">‹ Torna all'accesso</button>
+    </div>
+
+    <div id="accesso-nuova" hidden class="mt-4 space-y-3">
+      <p class="font-bold">Scegli la nuova password</p>
+      <input id="ac-nuova" type="password" autocomplete="new-password" class="campo" placeholder="Almeno 8 caratteri">
+      <input id="ac-nuova2" type="password" autocomplete="new-password" class="campo" placeholder="Ripeti la password">
+      <p id="ac-messaggio2" hidden class="text-sm font-bold"></p>
+      <button id="ac-salva-password" class="bot bot-verde bot-largo">Salva la nuova password</button>
+    </div>
+
+    <p class="text-xs font-semibold mt-4" style="color:var(--inchiostro2)">
+      L'accesso si fa una volta per telefono: dopo resti collegato.</p>
+  </div>
+</div>
+
 <div id="foglio" aria-hidden="true"></div>
 
 <input id="scegli-foto" type="file" accept="image/*" capture="environment" hidden>
@@ -301,6 +331,11 @@ const CONTENITORE_FOTO   = 'farm-photos';
 // Chiave pubblica per le notifiche (non è un segreto: la privata sta nei
 // GitHub Secrets e serve solo a chi invia).
 const CHIAVE_PUSH = 'BOoKI-xfJkU6tRnNaXKpO99FBDOwkOj61WoO1E2zxi9wOgb5dHvcqvjJgu7pl0eWSqwFkqyzU_rG25hQAmfCmvs';
+
+// Quando i permessi del database saranno chiusi, questo passa a true e l'app
+// non mostra nulla senza accesso. Per ora l'accesso c'è ma non è obbligatorio,
+// così si può provare senza rischiare di restare fuori.
+const ACCESSO_OBBLIGATORIO = false;
 /* ========================================================================== */
 
 const CONFIGURATO = /^https:\/\/[a-z0-9-]+\.supabase\.(co|in)\/?$/i.test(SUPABASE_URL.trim())
@@ -343,6 +378,8 @@ let interventi = [];
 let contatti   = [];
 let iscrizioni = [];              // dispositivi che ricevono le notifiche
 let regSW      = null;            // service worker registrato
+let utente     = null;            // chi ha fatto l'accesso (null = nessuno)
+let modoAccesso = 'entra';        // entra | recupera | nuova-password
 let vista       = 'oggi';
 let filtroMiei  = 'tutti';
 let filtroReg   = 'Tutti';
@@ -538,6 +575,106 @@ const archivioRemoto = {
 let archivio = archivioLocale;
 const elenco = { attivita: () => attivita, animali: () => animali, interventi: () => interventi,
                  contatti: () => contatti, iscrizioni: () => iscrizioni };
+
+/* ==========================================================================
+   ACCESSO
+   La sessione viene salvata dal client Supabase sul dispositivo e rinnovata da
+   sé: l'accesso si digita una volta per telefono.
+   ========================================================================== */
+function mostraAccesso(modo) {
+  modoAccesso = modo || 'entra';
+  const nuova = modoAccesso === 'nuova-password';
+  const recupera = modoAccesso === 'recupera';
+  $('#accesso').hidden = false;
+  $('#accesso-modulo').hidden = nuova;
+  $('#accesso-nuova').hidden = !nuova;
+  $('#ac-riga-password').hidden = recupera;
+  $('#ac-entra').textContent = recupera ? 'Mandami il link' : 'Entra';
+  $('#ac-dimenticata').hidden = recupera;
+  $('#ac-annulla').hidden = !recupera;
+  $('#accesso-sotto').textContent = nuova ? 'Ultimo passo: scegli la password nuova.'
+    : recupera ? 'Ti mando una email con il link per rifare la password.'
+    : 'Entra con la tua email.';
+  $('#ac-messaggio').hidden = true;
+  $('#ac-messaggio2').hidden = true;
+  document.body.style.overflow = 'hidden';
+}
+function nascondiAccesso() {
+  $('#accesso').hidden = true;
+  document.body.style.overflow = '';
+}
+function messaggioAccesso(testo, errore, quale) {
+  const el = $(quale === 2 ? '#ac-messaggio2' : '#ac-messaggio');
+  el.textContent = testo;
+  el.style.color = errore ? 'var(--allarme)' : 'var(--verde)';
+  el.hidden = false;
+}
+
+async function entra() {
+  const email = ($('#ac-email').value || '').trim();
+  if (!email) { messaggioAccesso('Scrivi la tua email', true); return; }
+
+  // modalità "ti mando il link per rifare la password"
+  if (modoAccesso === 'recupera') {
+    const bot = $('#ac-entra'); bot.disabled = true; bot.textContent = 'Invio…';
+    try {
+      const ritorno = location.origin + location.pathname;
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: ritorno });
+      if (error) throw error;
+      messaggioAccesso('Email inviata. Apri il link dal telefono: torni qui e scegli la password nuova.', false);
+    } catch (e) { messaggioAccesso('Non riuscito: ' + (e.message || e), true); }
+    finally { bot.disabled = false; bot.textContent = 'Mandami il link'; }
+    return;
+  }
+
+  const password = $('#ac-password').value || '';
+  if (!password) { messaggioAccesso('Scrivi la password', true); return; }
+  const bot = $('#ac-entra'); bot.disabled = true; bot.textContent = 'Entro…';
+  try {
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    utente = data.user;
+    $('#ac-password').value = '';
+    nascondiAccesso();
+    avvisa('Bentornato');
+    await ricarica(false);
+  } catch (e) {
+    const m = String(e.message || e);
+    messaggioAccesso(/Invalid login/i.test(m) ? 'Email o password non corrette.'
+      : /Email not confirmed/i.test(m) ? 'Questo indirizzo non è ancora confermato.'
+      : 'Accesso non riuscito: ' + m, true);
+  } finally { bot.disabled = false; bot.textContent = 'Entra'; }
+}
+
+async function salvaNuovaPassword() {
+  const a = $('#ac-nuova').value || '', b = $('#ac-nuova2').value || '';
+  if (a.length < 8) { messaggioAccesso('Serve almeno 8 caratteri', true, 2); return; }
+  if (a !== b) { messaggioAccesso('Le due password non coincidono', true, 2); return; }
+  const bot = $('#ac-salva-password'); bot.disabled = true; bot.textContent = 'Salvo…';
+  try {
+    const { error } = await sb.auth.updateUser({ password: a });
+    if (error) throw error;
+    $('#ac-nuova').value = ''; $('#ac-nuova2').value = '';
+    nascondiAccesso();
+    avvisa('✓ Password aggiornata');
+    await ricarica(false);
+  } catch (e) { messaggioAccesso('Non salvata: ' + (e.message || e), true, 2); }
+  finally { bot.disabled = false; bot.textContent = 'Salva la nuova password'; }
+}
+
+async function esci() {
+  try { await sb.auth.signOut(); } catch (e) {}
+  utente = null;
+  chiudiPannello();
+  if (ACCESSO_OBBLIGATORIO) { mostraAccesso('entra'); }
+  else { disegna(); avvisa('Uscito'); }
+}
+
+async function cambiaPasswordDaDentro() {
+  if (!utente) { avvisa('Prima fai l\'accesso', true); return; }
+  chiudiPannello();
+  mostraAccesso('nuova-password');
+}
 
 /* ==========================================================================
    NOTIFICHE — iscrizione del telefono
@@ -1913,6 +2050,20 @@ function disegnaImpostazioni() {
       <p class="mt-1 font-bold">${CONFIGURATO ? 'Database Supabase' : 'Solo questo dispositivo'}</p>
       <p class="text-sm font-semibold" style="color:var(--inchiostro2)">Stato: ${pul($('#stato-rete').textContent)}</p></div>
 
+    <div><span class="didascalia">Accesso</span>
+      ${utente ? `<p class="mt-1 font-bold">Collegato come ${pul(utente.email || '')}</p>
+          <p class="text-sm font-semibold" style="color:var(--inchiostro2)">Resti collegato su questo telefono: non serve rifare l'accesso.</p>
+          <div class="flex gap-2 mt-2">
+            <button class="bot bot-chiaro flex-1" data-azione="cambia-password">🔑 Cambia password</button>
+            <button class="bot bot-rosso" data-azione="esci">Esci</button>
+          </div>`
+        : `<p class="mt-1 font-bold" style="color:#8A4B10">Nessun accesso fatto</p>
+          <p class="text-sm font-semibold" style="color:var(--inchiostro2)">
+            ${ACCESSO_OBBLIGATORIO ? 'Serve l\'accesso per vedere i dati.'
+              : 'Per ora i dati sono visibili a chiunque abbia il link. Facendo l\'accesso ti prepari alla chiusura.'}</p>
+          <button class="bot bot-verde bot-largo mt-2" data-azione="apri-accesso">Entra con email e password</button>`}
+    </div>
+
     <div><span class="didascalia">Routine giornaliere (${rt.length})</span>
       <p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">Tocca il nome per modificarla.</p>
       <p class="text-xs font-semibold mt-1" style="color:var(--inchiostro2)">
@@ -2024,6 +2175,9 @@ document.addEventListener('click', (ev) => {
     case 'google-calendar': googleCalendar(idAperto); return;
     case 'backup-json': backupJson(); return;
     case 'backup-csv':  backupCsv(); return;
+    case 'apri-accesso':    chiudiPannello(); mostraAccesso('entra'); return;
+    case 'esci':            esci(); return;
+    case 'cambia-password': cambiaPasswordDaDentro(); return;
     case 'attiva-notifiche': attivaNotifiche(); return;
     case 'spegni-notifiche': spegniNotifiche(); return;
     case 'prova-notifica':   provaNotifica(); return;
@@ -2040,6 +2194,13 @@ document.addEventListener('click', (ev) => {
 
   if (el.dataset.apri) apriModifica(el.dataset.apri);
 });
+
+$('#ac-entra').addEventListener('click', entra);
+$('#ac-salva-password').addEventListener('click', salvaNuovaPassword);
+$('#ac-dimenticata').addEventListener('click', () => mostraAccesso('recupera'));
+$('#ac-annulla').addEventListener('click', () => mostraAccesso('entra'));
+$('#ac-password').addEventListener('keydown', (e) => { if (e.key === 'Enter') entra(); });
+$('#ac-email').addEventListener('keydown', (e) => { if (e.key === 'Enter') entra(); });
 
 $('#aggiungi').addEventListener('click', () => {
   if (vista === 'animali')  apriNuovo('Animale');
@@ -2152,6 +2313,27 @@ function riservaIconaEManifest() {
     sb = window.supabase.createClient(SUPABASE_URL.trim().replace(/\/$/, ''), SUPABASE_ANON_KEY.trim());
     archivio = archivioRemoto;
     statoRete('● …', '#ffffffcc');
+
+    // Sessione già salvata su questo telefono?
+    try {
+      const { data } = await sb.auth.getSession();
+      utente = (data && data.session && data.session.user) || null;
+    } catch (e) {}
+
+    // Il link della email di recupero riporta qui: il client legge il codice
+    // dall'indirizzo ed emette PASSWORD_RECOVERY.
+    sb.auth.onAuthStateChange((evento, sessione) => {
+      utente = (sessione && sessione.user) || null;
+      if (evento === 'PASSWORD_RECOVERY') { mostraAccesso('nuova-password'); return; }
+      if (evento === 'SIGNED_OUT' && ACCESSO_OBBLIGATORIO) { mostraAccesso('entra'); return; }
+      if (!$('#pannello').hidden && modo === 'impostazioni') disegnaImpostazioni();
+    });
+
+    if (ACCESSO_OBBLIGATORIO && !utente) {
+      mostraAccesso('entra');
+      return;                                   // niente dati finché non entra
+    }
+
     await ricarica(false);
     avviaSincronia();
   } else {
