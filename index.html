@@ -278,6 +278,16 @@ const CATEGORIE = [{ v: 'Animali', e: '🐄' }, { v: 'Recinti', e: '🚧' }, { v
 const PERSONE   = ['Io', 'Anna', 'Tutti'];
 const PRIORITA  = ['Alta', 'Media', 'Bassa'];
 const STATI     = ['Da fare', 'In corso', 'Completato'];
+// Ogni voce dice di quanto spostare la scadenza quando il lavoro viene finito.
+const RICORRENZE = [
+  { v: 'Mai',              giorni: 0,  mesi: 0 },
+  { v: 'Ogni settimana',   giorni: 7,  mesi: 0 },
+  { v: 'Ogni 2 settimane', giorni: 14, mesi: 0 },
+  { v: 'Ogni mese',        giorni: 0,  mesi: 1 },
+  { v: 'Ogni 3 mesi',      giorni: 0,  mesi: 3 },
+  { v: 'Ogni 6 mesi',      giorni: 0,  mesi: 6 },
+  { v: 'Ogni anno',        giorni: 0,  mesi: 12 }
+];
 const SPECIE    = ['Bovino', 'Ovino', 'Caprino', 'Avicolo', 'Equino', 'Suino', 'Altro'];
 const EMOJI_SPECIE = { Bovino: '🐄', Ovino: '🐑', Caprino: '🐐', Avicolo: '🐔', Equino: '🐴', Suino: '🐖', Altro: '🐾' };
 const TIPI_EVENTO  = ['Vaccino', 'Sverminazione', 'Visita veterinaria', 'Integratore', 'Altro'];
@@ -354,6 +364,25 @@ function oraLunga(ts) {
     : d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
   return `${g} · ${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
 }
+// Sposta una data secondo la ricorrenza scelta. Se il giorno non esiste nel
+// mese di arrivo (es. 31 gennaio + 1 mese) si usa l'ultimo giorno del mese.
+function prossimaData(dataPartenza, nomeRicorrenza) {
+  const r = RICORRENZE.find((x) => x.v === nomeRicorrenza);
+  if (!r || (!r.giorni && !r.mesi)) return null;
+  const base = dataPartenza || OGGI;
+  const [y, m, g] = base.split('-').map(Number);
+  if (r.giorni) {
+    const d = new Date(y, m - 1, g);
+    d.setDate(d.getDate() + r.giorni);
+    return isoDi(d);
+  }
+  const totale = (m - 1) + r.mesi;
+  const anno = y + Math.floor(totale / 12);
+  const mese = totale % 12;
+  const ultimoDelMese = new Date(anno, mese + 1, 0).getDate();
+  return isoDi(new Date(anno, mese, Math.min(g, ultimoDelMese)));
+}
+
 function eta(nascita) {
   if (!nascita) return '';
   const [y, m, d] = nascita.split('-').map(Number);
@@ -638,6 +667,7 @@ function etichetteDi(t) {
   if (t.categoria) out.push(`<span class="etichetta">${emojiCat(t.categoria)} ${pul(t.categoria)}</span>`);
   out.push(`<span class="etichetta et-chi">👤 ${pul(t.assegnato_a)}</span>`);
   if (t.priorita === 'Alta' && t.stato !== 'Completato') out.push('<span class="etichetta et-alta">🔥 Alta</span>');
+  if (t.ricorrenza && t.ricorrenza !== 'Mai') out.push(`<span class="etichetta">🔁 ${pul(t.ricorrenza.replace(/^Ogni /, 'ogni '))}</span>`);
   if (t.scadenza && t.stato !== 'Completato') {
     const n = giorniDaOggi(t.scadenza);
     // l'orario, se c'è, sta dentro la stessa etichetta della data
@@ -689,23 +719,25 @@ function avvisiCorrenti() {
   const rtMancanti = leRoutine().filter((t) => !routineFatta(t));
   const daComprare = laSpesa().filter((t) => t.stato !== 'Completato');
 
+  // `conta` dice se l'avviso deve far comparire il numero rosso sulla campanella:
+  // è un campo esplicito, non si deduce leggendo il testo.
   if (ritardo.length) v.push({ ico: '⛔', testo: `${ritardo.length} ${ritardo.length === 1 ? 'lavoro in ritardo' : 'lavori in ritardo'}`,
-    dettaglio: ritardo.slice(0, 3).map(conOra).join(' · '), vista: 'lavori', forte: true });
+    dettaglio: ritardo.slice(0, 3).map(conOra).join(' · '), vista: 'lavori', forte: true, conta: true });
   if (oggiSc.length) v.push({ ico: '📅', testo: `${oggiSc.length} in scadenza oggi`,
-    dettaglio: oggiSc.slice(0, 3).map(conOra).join(' · '), vista: 'oggi' });
+    dettaglio: oggiSc.slice(0, 3).map(conOra).join(' · '), vista: 'oggi', conta: true });
   if (inCorso.length) v.push({ ico: '🔄', testo: `${inCorso.length} ${inCorso.length === 1 ? 'lavoro iniziato' : 'lavori iniziati'} e non finiti`,
-    dettaglio: inCorso.slice(0, 3).map(conOra).join(' · '), vista: 'lavori' });
+    dettaglio: inCorso.slice(0, 3).map(conOra).join(' · '), vista: 'lavori', conta: false });
   if (rtMancanti.length) v.push({ ico: '☀️', testo: `${rtMancanti.length} routine da fare oggi`,
-    dettaglio: rtMancanti.slice(0, 4).map((t) => t.titolo).join(' · '), vista: 'oggi' });
+    dettaglio: rtMancanti.slice(0, 4).map((t) => t.titolo).join(' · '), vista: 'oggi', conta: false });
   if (daComprare.length) v.push({ ico: '🛒', testo: `${daComprare.length} ${daComprare.length === 1 ? 'articolo da comprare' : 'articoli da comprare'}`,
-    dettaglio: daComprare.slice(0, 4).map((t) => t.titolo).join(' · '), vista: 'spesa' });
+    dettaglio: daComprare.slice(0, 4).map((t) => t.titolo).join(' · '), vista: 'spesa', conta: true });
   if (domani.length) v.push({ ico: '🌅', testo: `${domani.length} in scadenza domani`,
-    dettaglio: domani.slice(0, 3).map(conOra).join(' · '), vista: 'oggi' });
+    dettaglio: domani.slice(0, 3).map(conOra).join(' · '), vista: 'oggi', conta: false });
   return v;
 }
 
 function aggiornaPallino() {
-  const n = avvisiCorrenti().filter((a) => a.forte || /ritardo|oggi|comprare/.test(a.testo)).length;
+  const n = avvisiCorrenti().filter((a) => a.conta).length;
   const p = $('#pallino');
   p.textContent = n; p.hidden = n === 0;
 }
@@ -741,8 +773,10 @@ function schedaLavoro(t, azioni = true) {
     <article class="scheda tocca ${ritardo ? 'scheda-urgente' : ''} ${fatto ? 'scheda-fatta' : ''}" data-apri="${t.id}" role="button" tabindex="0">
       <div class="flex items-start gap-2">
         <h3 class="flex-1 font-black text-base leading-tight ${fatto ? 'line-through opacity-60' : ''}">${pul(t.titolo)}</h3>
-        ${azioni && !fatto ? `<button class="bot bot-verde bot-piccolo shrink-0" data-azione="${t.stato === 'Da fare' ? 'inizia' : 'finisci'}" data-id="${t.id}">
-             ${t.stato === 'Da fare' ? '▶ Inizia' : '✓ Fatto'}</button>`
+        ${azioni && !fatto ? `<span class="flex gap-1.5 shrink-0">
+             ${t.stato === 'Da fare' ? `<button class="bot bot-chiaro bot-piccolo px-2.5" data-azione="inizia" data-id="${t.id}" aria-label="Segna come iniziato">▶</button>` : ''}
+             <button class="bot bot-verde bot-piccolo" data-azione="finisci" data-id="${t.id}">✓ Fatto</button>
+           </span>`
           : '<span class="text-xl shrink-0" style="color:var(--inchiostro2)">›</span>'}
       </div>
       <div class="flex flex-wrap gap-1.5 mt-2">${etichetteDi(t)}</div>
@@ -1163,6 +1197,29 @@ async function cambia(coll, id, cambi, messaggio) {
   } catch (e) { arr[i] = prima; disegna(); avvisa('Non salvato: ' + (e.message || e), true); }
 }
 
+// Un lavoro che si ripete: appena lo segni fatto, ne creo il successivo con la
+// data spostata. Se esiste già (per esempio hai completato due volte lo stesso
+// lavoro) non lo duplico.
+async function ripetiSeServe(id) {
+  const t = attivita.find((x) => x.id === id);
+  if (!t || t.tipo !== 'Lavoro' || !t.ricorrenza || t.ricorrenza === 'Mai') return;
+  const prossima = prossimaData(t.scadenza, t.ricorrenza);
+  if (!prossima) return;
+  const giaCe = attivita.some((x) => x.tipo === 'Lavoro' && x.stato !== 'Completato'
+    && x.titolo === t.titolo && x.scadenza === prossima);
+  if (giaCe) return;
+
+  const nuovo = { tipo: 'Lavoro', titolo: t.titolo, categoria: t.categoria,
+                  priorita: t.priorita, assegnato_a: t.assegnato_a, scadenza: prossima,
+                  stato: 'Da fare', note: t.note || null, ricorrenza: t.ricorrenza };
+  if (t.ora) nuovo.ora = t.ora;
+  try {
+    metti('attivita', await archivio.inserisci('attivita', nuovo));
+    disegna();
+    avvisa('🔁 Prossima volta: ' + prossima.split('-').reverse().join('/'));
+  } catch (e) { avvisa('Ripetizione non creata: ' + (e.message || e), true); }
+}
+
 const spuntaRoutine = (id) => {
   const t = attivita.find((x) => x.id === id); if (!t) return;
   const su = routineFatta(t);
@@ -1184,6 +1241,29 @@ async function svuotaComprati() {
   }
   disegna(); avvisa('Lista ripulita');
 }
+// Scambia una routine con quella sopra o sotto, riscrivendo il campo ordine.
+async function spostaRoutine(id, direzione) {
+  const lista = leRoutine();
+  const i = lista.findIndex((t) => t.id === id);
+  const j = i + direzione;
+  if (i < 0 || j < 0 || j >= lista.length) return;
+  const a = lista[i], b = lista[j];
+  // uso le posizioni nella lista, così l'ordine resta compatto anche se i
+  // valori sul database erano tutti a zero o duplicati
+  const nuovoOrdineA = j + 1, nuovoOrdineB = i + 1;
+  const primaA = a.ordine, primaB = b.ordine;
+  a.ordine = nuovoOrdineA; b.ordine = nuovoOrdineB;
+  disegnaImpostazioni(); disegna();
+  try {
+    await archivio.modifica('attivita', a.id, { ordine: nuovoOrdineA });
+    await archivio.modifica('attivita', b.id, { ordine: nuovoOrdineB });
+  } catch (e) {
+    a.ordine = primaA; b.ordine = primaB;
+    disegnaImpostazioni(); disegna();
+    avvisa('Ordine non salvato: ' + (e.message || e), true);
+  }
+}
+
 async function elimina(coll, id) {
   try {
     await archivio.elimina(coll, id);
@@ -1201,7 +1281,7 @@ async function elimina(coll, id) {
    ========================================================================== */
 function apriNuovo(tipo, scadenza) {
   modo = 'nuovo'; idAperto = null; tipoAperto = tipo; fotoScelta.dati = null;
-  mod = { titolo: '', categoria: 'Animali',
+  mod = { titolo: '', categoria: 'Animali', ricorrenza: 'Mai',
           assegnato_a: io, priorita: 'Media', stato: 'Da fare', scadenza: scadenza || '', ora: '', note: '',
           specie: 'Bovino', razza: '', data_nascita: '', codice_stalla: '', costo_acquisto: '',
           tipo_evento: 'Visita veterinaria', data_evento: OGGI, descrizione: '', nome_veterinario: '', costo: '',
@@ -1215,6 +1295,7 @@ function apriModifica(id) {
   mod = { titolo: t.titolo || '', categoria: t.categoria || 'Altro',
           assegnato_a: t.assegnato_a || 'Io', priorita: t.priorita || 'Media', stato: t.stato || 'Da fare',
           scadenza: t.scadenza || '', ora: t.ora || '', avevaOra: !!t.ora,
+          ricorrenza: t.ricorrenza || 'Mai', avevaRicorrenza: !!t.ricorrenza,
           note: t.note || '', foto_url: t.foto_url || null, extra: true };
   disegnaPannello(); apriPannello();
 }
@@ -1374,7 +1455,12 @@ function disegnaPannello() {
               </div>
               <p class="text-xs font-semibold mt-1" style="color:var(--inchiostro2)">
                 Lascialo vuoto se è un lavoro da fare "in giornata".</p></div>
-            <div><span class="didascalia">Priorità</span><div class="flex gap-2 mt-1.5">${pastiglie(PRIORITA, mod.priorita, 'priorita')}</div></div>`;
+            <div><span class="didascalia">Priorità</span><div class="flex gap-2 mt-1.5">${pastiglie(PRIORITA, mod.priorita, 'priorita')}</div></div>
+            <div><span class="didascalia">Si ripete</span>
+              <div class="flex flex-wrap gap-2 mt-1.5">${pastiglie(RICORRENZE.map((r) => r.v), mod.ricorrenza || 'Mai', 'ricorrenza', '')}</div>
+              <p class="text-xs font-semibold mt-1" style="color:var(--inchiostro2)">
+                Quando lo segni fatto, l'app ricrea da sé il prossimo con la data spostata.
+                Per le cose di ogni giorno usa invece le routine.</p></div>`;
       if (!nuovo) h += `<div><span class="didascalia">Stato</span><div class="flex gap-2 mt-1.5">${pastiglie(STATI, mod.stato, 'stato')}</div></div>`;
     }
   }
@@ -1450,6 +1536,10 @@ async function salva() {
       riga.completato_il = mod.stato === 'Completato' ? new Date().toISOString() : null;
       // L'orario viene inviato solo se serve davvero: così l'app continua a
       // funzionare anche se la colonna `ora` non è ancora stata aggiunta.
+      // come per l'orario: mando il campo solo quando serve, così l'app
+      // continua a funzionare anche prima di aggiungere la colonna al database
+      if (mod.ricorrenza && mod.ricorrenza !== 'Mai') riga.ricorrenza = mod.ricorrenza;
+      else if (mod.avevaRicorrenza) riga.ricorrenza = null;
       if (mod.ora) riga.ora = mod.ora;
       else if (mod.avevaOra) riga.ora = null;          // l'orario c'era ed è stato togliato
       if (!mod.scadenza) riga.ora = mod.avevaOra ? null : undefined;
@@ -1472,13 +1562,18 @@ async function salva() {
       chiudiPannello(); disegna(); avvisa(k === 'Nota' ? 'Nota salvata' : 'Aggiunto');
     } else {
       metti('attivita', await archivio.modifica('attivita', idAperto, riga));
+      const idSalvato = idAperto;
       chiudiPannello(); disegna(); avvisa('Modifiche salvate');
+      if (k === 'Lavoro' && riga.stato === 'Completato') await ripetiSeServe(idSalvato);
     }
   } catch (e) {
     const m = (e && e.message) || String(e);
-    if (/\bora\b/.test(m) && /column|colonna|schema cache/i.test(m)) {
-      avvisa('Per usare l\'orario devi aggiungere la colonna: apri l\'SQL Editor di Supabase ed esegui '
+    if (/column|colonna|schema cache/i.test(m) && /\bora\b/.test(m)) {
+      avvisa('Per usare l\'orario esegui nell\'SQL Editor di Supabase: '
              + 'alter table public.attivita add column if not exists ora text;', true);
+    } else if (/column|colonna|schema cache/i.test(m) && /ricorrenza/i.test(m)) {
+      avvisa('Per usare le ripetizioni esegui nell\'SQL Editor di Supabase: '
+             + 'alter table public.attivita add column if not exists ricorrenza text;', true);
     } else avvisa('Non salvato: ' + m, true);
     if (bot) { bot.disabled = false; disegnaPannello(); }
   }
@@ -1606,8 +1701,16 @@ function disegnaImpostazioni() {
 
     <div><span class="didascalia">Routine giornaliere (${rt.length})</span>
       <p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">Tocca il nome per modificarla.</p>
+      <p class="text-xs font-semibold mt-1" style="color:var(--inchiostro2)">
+        Con le frecce le metti nell'ordine in cui giri la mattina.</p>
       <div class="space-y-2 mt-2">
-        ${rt.map((t) => `<div class="scheda scheda-fitta flex items-center gap-2">
+        ${rt.map((t, i) => `<div class="scheda scheda-fitta flex items-center gap-2">
+            <span class="flex flex-col gap-1 shrink-0">
+              <button class="bot bot-chiaro px-2" style="min-height:26px"
+                      data-azione="su-routine" data-id="${t.id}" ${i === 0 ? 'disabled style="opacity:.3;min-height:26px"' : ''} aria-label="Sposta su">▲</button>
+              <button class="bot bot-chiaro px-2" style="min-height:26px"
+                      data-azione="giu-routine" data-id="${t.id}" ${i === rt.length - 1 ? 'disabled style="opacity:.3;min-height:26px"' : ''} aria-label="Sposta giù">▼</button>
+            </span>
             <button type="button" class="flex-1 text-left min-w-0" data-apri="${t.id}">
               <span class="block font-bold truncate">${pul(t.titolo)} <span style="color:var(--inchiostro2)">›</span></span>
               <span class="block text-xs font-semibold mt-0.5" style="color:var(--inchiostro2)">${pul(t.assegnato_a)}</span>
@@ -1658,7 +1761,10 @@ document.addEventListener('click', (ev) => {
     case 'routine':  spuntaRoutine(id); return;
     case 'spesa':    spuntaSpesa(id); return;
     case 'inizia':   ev.stopPropagation(); cambia('attivita', id, { stato: 'In corso' }, '▶ In corso'); return;
-    case 'finisci':  ev.stopPropagation(); cambia('attivita', id, { stato: 'Completato', completato_il: new Date().toISOString() }, '✓ Completato'); return;
+    case 'finisci':  ev.stopPropagation();
+      cambia('attivita', id, { stato: 'Completato', completato_il: new Date().toISOString() }, '✓ Completato')
+        .then(() => ripetiSeServe(id));
+      return;
     case 'elimina':  ev.stopPropagation(); elimina('attivita', id).then(() => { if (modo === 'impostazioni') disegnaImpostazioni(); }); return;
     case 'elimina-contatto': elimina('contatti', id).then(() => apriContatti()); return;
     case 'svuota-comprati': svuotaComprati(); return;
@@ -1668,6 +1774,8 @@ document.addEventListener('click', (ev) => {
     case 'cal-oggi': { const d = new Date(); calA = d.getFullYear(); calM = d.getMonth(); calSel = OGGI; disegna(); return; }
     case 'nuovo-nel-giorno': apriNuovo('Lavoro', calSel); return;
     case 'nuova-routine':    apriNuovo('Routine'); return;
+    case 'su-routine':       spostaRoutine(id, -1); return;
+    case 'giu-routine':      spostaRoutine(id, 1); return;
     case 'nuovo-contatto':   apriNuovo('Contatto'); return;
     case 'nuovo-intervento': apriNuovo('Intervento'); return;
     case 'modifica-animale': apriModificaAnimale(animaleAperto); return;
