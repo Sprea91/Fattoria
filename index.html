@@ -636,8 +636,13 @@ async function entra() {
     utente = data.user;
     $('#ac-password').value = '';
     nascondiAccesso();
-    avvisa('Bentornato');
+    allineaIdentita();
     await ricarica(false);
+    if (!nomeDaAccount()) {
+      // prima volta con questo account: chiedo chi è, una volta sola
+      avvisa('Dimmi solo chi sei');
+      apriImpostazioni();
+    } else avvisa('Bentornato, ' + nomeDaAccount());
   } catch (e) {
     const m = String(e.message || e);
     messaggioAccesso(/Invalid login/i.test(m) ? 'Email o password non corrette.'
@@ -668,6 +673,28 @@ async function esci() {
   chiudiPannello();
   if (ACCESSO_OBBLIGATORIO) { mostraAccesso('entra'); }
   else { disegna(); avvisa('Uscito'); }
+}
+
+/* ---------- chi sei: lo prendo dall'account, non dal telefono ---------- */
+const nomeDaAccount = () => (utente && utente.user_metadata && utente.user_metadata.nome) || null;
+
+function allineaIdentita() {
+  const n = nomeDaAccount();
+  if (n && n !== io) { io = n; localStorage.setItem('fattoria_io', io); }
+}
+
+async function impostaIdentita(nome) {
+  io = nome;
+  localStorage.setItem('fattoria_io', nome);
+  if (utente && sb) {
+    try {
+      const { data, error } = await sb.auth.updateUser({ data: { nome } });
+      if (!error && data && data.user) utente = data.user;
+      avvisa('Ricordato sul tuo account: sei ' + nome);
+    } catch (e) { avvisa('Salvato solo su questo telefono: ' + (e.message || e), true); }
+  }
+  disegnaImpostazioni();
+  disegna();
 }
 
 async function cambiaPasswordDaDentro() {
@@ -1992,6 +2019,40 @@ function backupCsv() {
 /* ==========================================================================
    IMPOSTAZIONI
    ========================================================================== */
+// Chi sta usando l'app. Con l'accesso fatto la risposta viene dall'account:
+// si dice una volta e vale su tutti i dispositivi.
+function bloccoChiSei() {
+  const dallAccount = nomeDaAccount();
+  if (utente && dallAccount) {
+    return `<div><span class="didascalia">Chi sta usando l'app</span>
+      <p class="mt-1 font-black text-lg">${pul(dallAccount)}</p>
+      <p class="text-sm font-semibold" style="color:var(--inchiostro2)">
+        Riconosciuto dal tuo account ${pul(utente.email || '')}: non lo devi più scegliere.</p>
+      <div class="flex gap-2 mt-2">
+        ${PERSONE.filter((p) => p !== 'Tutti' && p !== dallAccount).map((p) =>
+          `<button class="bot bot-chiaro bot-piccolo" data-sono="${pul(p)}">Non sono ${pul(p)}? Correggi</button>`).join('')}
+      </div></div>`;
+  }
+  if (utente && !dallAccount) {
+    return `<div><span class="didascalia">Chi sta usando l'app</span>
+      <p class="mt-1 font-bold" style="color:#8A4B10">Dimmelo una volta sola</p>
+      <p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">
+        Lo ricordo sul tuo account ${pul(utente.email || '')}, così non te lo chiedo più
+        e vale anche se cambi telefono.</p>
+      <div class="flex gap-2 mt-2">
+        <button class="past flex-1" data-sono="Io">Sono Io</button>
+        <button class="past flex-1" data-sono="Anna">Sono Anna</button>
+      </div></div>`;
+  }
+  return `<div><span class="didascalia">Chi sta usando l'app</span>
+    <p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">
+      Senza accesso lo scegli a mano su questo telefono. Facendo l'accesso viene riconosciuto da sé.</p>
+    <div class="flex gap-2 mt-2">
+      <button class="past flex-1" data-io="Io"   aria-pressed="${io === 'Io'}">Io</button>
+      <button class="past flex-1" data-io="Anna" aria-pressed="${io === 'Anna'}">Anna</button>
+    </div></div>`;
+}
+
 function bloccoNotifiche() {
   const s = statoNotifiche();
   const altri = iscrizioni.filter((x) => x.endpoint !== endpointLocale);
@@ -2040,11 +2101,7 @@ function disegnaImpostazioni() {
   $('#pannello-titolo').textContent = 'Impostazioni';
   const rt = leRoutine();
   $('#pannello-corpo').innerHTML = `
-    <div><span class="didascalia">Chi sta usando l'app</span>
-      <div class="flex gap-2 mt-2">
-        <button class="past flex-1" data-io="Io"   aria-pressed="${io === 'Io'}">Io</button>
-        <button class="past flex-1" data-io="Anna" aria-pressed="${io === 'Anna'}">Anna</button>
-      </div></div>
+    ${bloccoChiSei()}
 
     <div><span class="didascalia">Collegamento</span>
       <p class="mt-1 font-bold">${CONFIGURATO ? 'Database Supabase' : 'Solo questo dispositivo'}</p>
@@ -2105,7 +2162,7 @@ function disegnaImpostazioni() {
    EVENTI
    ========================================================================== */
 document.addEventListener('click', (ev) => {
-  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra]');
+  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra]');
   if (!el) return;
 
   if (el.dataset.vista) {
@@ -2117,6 +2174,7 @@ document.addEventListener('click', (ev) => {
   if (el.dataset.miei)    { filtroMiei = el.dataset.miei; disegna(); return; }
   if (el.dataset.filtroReg) { filtroReg = el.dataset.filtroReg; disegna(); return; }
   if (el.dataset.io)      { io = el.dataset.io; localStorage.setItem('fattoria_io', io); disegnaImpostazioni(); disegna(); return; }
+  if (el.dataset.sono)    { impostaIdentita(el.dataset.sono); return; }
   if (el.dataset.animale) { apriAnimale(el.dataset.animale); return; }
   if (el.dataset.intervento) { apriIntervento(el.dataset.intervento); return; }
   if (el.dataset.inquadra) {
@@ -2318,12 +2376,14 @@ function riservaIconaEManifest() {
     try {
       const { data } = await sb.auth.getSession();
       utente = (data && data.session && data.session.user) || null;
+      allineaIdentita();
     } catch (e) {}
 
     // Il link della email di recupero riporta qui: il client legge il codice
     // dall'indirizzo ed emette PASSWORD_RECOVERY.
     sb.auth.onAuthStateChange((evento, sessione) => {
       utente = (sessione && sessione.user) || null;
+      allineaIdentita();
       if (evento === 'PASSWORD_RECOVERY') { mostraAccesso('nuova-password'); return; }
       if (evento === 'SIGNED_OUT' && ACCESSO_OBBLIGATORIO) { mostraAccesso('entra'); return; }
       if (!$('#pannello').hidden && modo === 'impostazioni') disegnaImpostazioni();
