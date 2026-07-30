@@ -170,10 +170,16 @@
               box-shadow: 0 6px 18px rgba(20,40,20,.35); border: 3px solid #FBF7EC; }
   #aggiungi:active { filter: brightness(.92); }
 
-  #pallino { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px;
-             border-radius: 999px; background: var(--allarme); color: #fff; font-size: .6875rem;
-             font-weight: 900; display: grid; place-items: center; padding: 0 4px;
-             border: 2px solid var(--salvia); }
+  /* Il numero è ancorato alla campanella disegnata, non al bordo del bottone:
+     altrimenti resta staccato, perché il bottone è più grande dell'emoji. */
+  .campana { position: relative; display: inline-flex; line-height: 1; }
+  #pallino { position: absolute; top: -7px; right: -9px;
+             min-width: 18px; height: 18px; border-radius: 999px;
+             background: var(--allarme); color: #fff;
+             font-size: .625rem; font-weight: 900; letter-spacing: 0;
+             display: inline-flex; align-items: center; justify-content: center;
+             padding: 0 4px; border: 2px solid var(--salvia);
+             font-family: system-ui, sans-serif; }
 
   .miniatura { width: 100%; max-height: 210px; object-fit: cover; border-radius: .8rem;
                border: 1.5px solid var(--bordo); display: block; }
@@ -192,8 +198,10 @@
     </h1>
     <span id="stato-rete" class="etichetta shrink-0" style="background:#ffffffcc">…</span>
     <div class="ml-auto flex items-center gap-1.5 shrink-0">
-      <button id="bot-avvisi" class="relative w-10 h-10 rounded-xl grid place-items-center text-xl"
-              style="background:#ffffff99" aria-label="Avvisi">🔔<span id="pallino" hidden>0</span></button>
+      <button id="bot-avvisi" class="w-10 h-10 rounded-xl grid place-items-center text-xl"
+              style="background:#ffffff99" aria-label="Avvisi">
+        <span class="campana">🔔<span id="pallino" hidden>0</span></span>
+      </button>
       <button id="bot-impostazioni" class="w-10 h-10 rounded-xl grid place-items-center text-xl"
               style="background:#ffffff99" aria-label="Impostazioni">⚙️</button>
       <button id="bot-io" class="w-10 h-10 rounded-full grid place-items-center font-black text-white"
