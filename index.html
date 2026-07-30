@@ -1,15 +1,14 @@
 <!--
   ============================================================================
-  FATTORIA TASKS — v3 (Single Page PWA, file unico)
+  FATTORIA TASKS — v4 (file unico, tutto in italiano)
   ============================================================================
-  Sezioni:  Oggi · Calendario · Lavori · Registro · Spesa   (+ Storico dal calendario)
-  Aggiunta: bottone verde in basso a destra, cambia in base alla sezione.
-  Dettagli: un tap sulla scheda (o sul nome della routine) apre il dettaglio
-            modificabile. Sulle routine il cerchietto a sinistra spunta, il
-            resto della riga apre i dettagli.
+  Barra in basso:  Oggi · Animali · Lavori · Registro · Spesa
+  Home (Oggi):     Calendario e scadenze -> Scadenze -> Attività del giorno -> Routine
+  In alto:         🔔 notifiche (scadenze, spesa, routine) · ⚙️ impostazioni · avatar
 
-  PRIMA DI USARLA: esegui una volta "schema-v2.sql" nell'SQL Editor di Supabase.
-  Lo schema del database è lo stesso della v2, non serve rifarlo se l'hai già fatto.
+  PRIMA DI USARLA esegui "schema-v4.sql" nell'SQL Editor di Supabase.
+  Cambiano i nomi di tabella e colonne (ora in italiano): esegui lo script e
+  carica questo file nello stesso momento.
   ============================================================================
 -->
 <meta charset="utf-8">
@@ -26,27 +25,26 @@
 
 <style>
   :root {
-    --sage:      #8FA583;
-    --sage-dark: #6E8663;
-    --cream:     #E6D8BC;
-    --card:      #FBF7EC;
-    --line:      #DFD4BC;
-    --ink:       #1E2418;
-    --ink-2:     #4A5340;
-    --brand:     #2F6B33;
-    --brand-2:   #245227;
-    --chip:      #E2EADB;
-    --chip-ink:  #24401F;
-    --danger:    #B3261E;
+    --salvia:      #8FA583;
+    --salvia-cupo: #6E8663;
+    --sabbia:      #E6D8BC;
+    --scheda:      #FBF7EC;
+    --bordo:       #DFD4BC;
+    --inchiostro:  #1E2418;
+    --inchiostro2: #4A5340;
+    --verde:       #2F6B33;
+    --verde-cupo:  #245227;
+    --pastiglia:   #E2EADB;
+    --pastiglia-t: #24401F;
+    --allarme:     #B3261E;
   }
-  * { -webkit-tap-highlight-color: transparent; }
+  * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
   body {
-    margin: 0; color: var(--ink);
+    margin: 0; color: var(--inchiostro);
     font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-    overscroll-behavior-y: contain;
-    /* Texture legno con soli gradienti CSS: nessun file da scaricare. */
-    background-color: var(--cream);
+    overscroll-behavior-y: contain; overflow-x: hidden;
+    background-color: var(--sabbia);
     background-image:
       repeating-linear-gradient(90deg, rgba(126,92,50,.10) 0 1px, rgba(0,0,0,0) 1px 5px),
       repeating-linear-gradient(90deg, rgba(126,92,50,.07) 0 2px, rgba(0,0,0,0) 2px 11px),
@@ -56,171 +54,193 @@
       linear-gradient(180deg, rgba(255,250,238,.35), rgba(255,250,238,0) 34%);
     background-attachment: fixed;
   }
-  input, select, textarea, button { font-size: 16px; font-family: inherit; color: var(--ink); }
+  input, select, textarea, button { font-size: 16px; font-family: inherit; color: var(--inchiostro); }
   .no-sb { scrollbar-width: none; -ms-overflow-style: none; }
   .no-sb::-webkit-scrollbar { display: none; }
 
-  .card {
-    background: var(--card); border: 1px solid rgba(180,164,132,.6);
-    border-radius: 1.25rem; padding: 1.05rem;
-    box-shadow: 0 3px 10px rgba(74,58,32,.09), 0 1px 2px rgba(74,58,32,.05);
-  }
-  .card-hot  { background: #FFF3EF; border-color: #E9A08F; }
-  .card-done { background: #F2F1EA; }
-  .card-tap:active { transform: scale(.99); }
+  .scheda { background: var(--scheda); border: 1px solid rgba(180,164,132,.6);
+            border-radius: 1.25rem; padding: 1.05rem;
+            box-shadow: 0 3px 10px rgba(74,58,32,.09), 0 1px 2px rgba(74,58,32,.05); }
+  .scheda-fitta { padding: .75rem; }
+  .scheda-urgente { background: #FFF3EF; border-color: #E9A08F; }
+  .scheda-fatta   { background: #F2F1EA; }
+  .tocca:active   { transform: scale(.99); }
 
-  .h-sec { display: flex; align-items: center; gap: .5rem; font-size: 1.0625rem;
-           font-weight: 900; letter-spacing: -.01em; margin: 0 .25rem .75rem; }
-  .h-count { font-size: .75rem; font-weight: 900; background: var(--chip); color: var(--chip-ink);
-             padding: .2rem .45rem; border-radius: .4rem; border: 1px solid var(--line); }
+  .titolo-sez { display: flex; align-items: center; gap: .5rem; font-size: 1.0625rem;
+                font-weight: 900; letter-spacing: -.01em; margin: 0 .25rem .75rem; }
+  .conta { font-size: .75rem; font-weight: 900; background: var(--pastiglia); color: var(--pastiglia-t);
+           padding: .2rem .45rem; border-radius: .4rem; border: 1px solid var(--bordo); }
 
-  .badge { display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap;
-           font-size: .75rem; font-weight: 800; line-height: 1; padding: .35rem .5rem;
-           border-radius: .5rem; background: var(--chip); color: var(--chip-ink); border: 1px solid var(--line); }
-  .badge-hot   { background: var(--danger); color: #fff; border-color: var(--danger); }
-  .badge-today { background: #8A4B10; color: #fff; border-color: #8A4B10; }
-  .badge-pri   { background: #C2410C; color: #fff; border-color: #C2410C; }
-  .badge-who   { background: #E7EDF7; color: #1D3A6B; border-color: #C8D6EA; }
+  .etichetta { display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap;
+               font-size: .75rem; font-weight: 800; line-height: 1; padding: .35rem .5rem;
+               border-radius: .5rem; background: var(--pastiglia); color: var(--pastiglia-t);
+               border: 1px solid var(--bordo); }
+  .et-ritardo { background: var(--allarme); color: #fff; border-color: var(--allarme); }
+  .et-oggi    { background: #8A4B10; color: #fff; border-color: #8A4B10; }
+  .et-alta    { background: #C2410C; color: #fff; border-color: #C2410C; }
+  .et-chi     { background: #E7EDF7; color: #1D3A6B; border-color: #C8D6EA; }
+  .et-soldi   { background: #FEF3C7; color: #78350F; border-color: #FDE68A; }
 
-  .btn { display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+  .bot { display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
          min-height: 48px; padding: 0 1rem; border-radius: .8rem; font-weight: 900;
          font-size: .9375rem; border: 2px solid transparent; }
-  .btn:active { filter: brightness(.93); }
-  .btn-primary { background: var(--brand); color: #fff; }
-  .btn-ghost   { background: var(--card); color: var(--ink); border-color: var(--line); }
-  .btn-danger  { background: #FDEBEA; color: var(--danger); border-color: #E9B4B0; }
-  .btn-sm      { min-height: 42px; padding: 0 .8rem; font-size: .875rem; border-radius: .7rem; }
-  .btn-wide    { width: 100%; min-height: 54px; font-size: 1.0625rem; }
+  .bot:active { filter: brightness(.93); }
+  .bot-verde  { background: var(--verde); color: #fff; }
+  .bot-chiaro { background: var(--scheda); color: var(--inchiostro); border-color: var(--bordo); }
+  .bot-rosso  { background: #FDEBEA; color: var(--allarme); border-color: #E9B4B0; }
+  .bot-piccolo{ min-height: 42px; padding: 0 .8rem; font-size: .875rem; border-radius: .7rem; }
+  .bot-largo  { width: 100%; min-height: 54px; font-size: 1.0625rem; }
 
-  .chip { display: inline-flex; align-items: center; justify-content: center; gap: .3rem;
-          min-height: 44px; padding: 0 .85rem; border-radius: .8rem; background: var(--card);
-          color: var(--ink); border: 2px solid var(--line); font-weight: 800;
+  .past { display: inline-flex; align-items: center; justify-content: center; gap: .3rem;
+          min-height: 44px; padding: 0 .85rem; border-radius: .8rem; background: var(--scheda);
+          color: var(--inchiostro); border: 2px solid var(--bordo); font-weight: 800;
           font-size: .875rem; white-space: nowrap; }
-  .chip[aria-pressed="true"] { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .past[aria-pressed="true"] { background: var(--verde); color: #fff; border-color: var(--verde); }
 
-  .field { width: 100%; min-height: 52px; padding: .75rem .9rem; background: #fff;
-           border: 2px solid var(--line); border-radius: .8rem; font-weight: 700; }
-  .field::placeholder { color: #94907F; font-weight: 600; }
-  .field:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(47,107,51,.22); }
-  .lbl { font-size: .75rem; font-weight: 900; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); }
+  .campo { width: 100%; min-height: 52px; padding: .75rem .9rem; background: #fff;
+           border: 2px solid var(--bordo); border-radius: .8rem; font-weight: 700; }
+  .campo::placeholder { color: #94907F; font-weight: 600; }
+  .campo:focus { outline: none; border-color: var(--verde); box-shadow: 0 0 0 3px rgba(47,107,51,.22); }
+  .didascalia { font-size: .75rem; font-weight: 900; letter-spacing: .05em;
+                text-transform: uppercase; color: var(--inchiostro2); }
 
-  /* ---- righe spuntabili (routine e spesa) ---- */
-  .rt { display: flex; align-items: center; gap: .85rem; width: 100%;
-        background: var(--card); border: 1px solid rgba(180,164,132,.6);
-        border-radius: 1.25rem; padding: 1rem; text-align: left;
-        box-shadow: 0 3px 10px rgba(74,58,32,.09), 0 1px 2px rgba(74,58,32,.05); }
-  .rt-box { flex: 0 0 auto; width: 42px; height: 42px; border-radius: 50%;
-            border: 3px solid #B9AE93; display: grid; place-items: center;
-            font-size: 1.25rem; font-weight: 900; color: transparent; background: #fff; }
-  .rt-on           { background: #EEF3EA; border-color: #BFCDB6; }
-  .rt-on .rt-box   { background: var(--brand); border-color: var(--brand); color: #fff; }
-  .rt-on .rt-title { text-decoration: line-through; color: #6B7360; }
-  .rt-title        { display: block; font-weight: 800; font-size: 1rem; line-height: 1.2; }
-  .rt-open         { flex: 1 1 auto; text-align: left; min-width: 0; }
+  /* righe da spuntare */
+  .riga { display: flex; align-items: center; gap: .85rem; width: 100%;
+          background: var(--scheda); border: 1px solid rgba(180,164,132,.6);
+          border-radius: 1.25rem; padding: 1rem; text-align: left;
+          box-shadow: 0 3px 10px rgba(74,58,32,.09), 0 1px 2px rgba(74,58,32,.05); }
+  .cerchio { flex: 0 0 auto; width: 42px; height: 42px; border-radius: 50%;
+             border: 3px solid #B9AE93; display: grid; place-items: center;
+             font-size: 1.25rem; font-weight: 900; color: transparent; background: #fff; }
+  .riga-ok           { background: #EEF3EA; border-color: #BFCDB6; }
+  .riga-ok .cerchio  { background: var(--verde); border-color: var(--verde); color: #fff; }
+  .riga-ok .riga-tit { text-decoration: line-through; color: #6B7360; }
+  .riga-tit  { display: block; font-weight: 800; font-size: 1rem; line-height: 1.2; }
+  .riga-apri { flex: 1 1 auto; text-align: left; min-width: 0; }
 
-  /* ---- calendario ---- */
-  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: .3rem; }
-  .cal-dow  { text-align: center; font-size: .6875rem; font-weight: 900; color: var(--ink-2); padding-bottom: .2rem; }
-  .cal-cell { position: relative; aspect-ratio: 1 / 1; min-height: 44px; border-radius: .7rem;
-              background: #FDFBF4; border: 1.5px solid rgba(180,164,132,.5);
-              display: flex; flex-direction: column; align-items: center; justify-content: center;
-              font-weight: 800; font-size: .9375rem; gap: 2px; }
-  .cal-cell.out   { background: transparent; border-color: transparent; color: #A79E86; }
-  .cal-cell.today { border-color: var(--brand); border-width: 2.5px; }
-  .cal-cell.sel   { background: var(--brand); color: #fff; border-color: var(--brand); }
-  .cal-dots { display: flex; gap: 2px; height: 6px; align-items: center; }
-  .dot { width: 6px; height: 6px; border-radius: 50%; }
-  .dot-late { background: var(--danger); }
-  .dot-open { background: var(--brand); }
-  .dot-run  { background: #1D4ED8; }
-  .dot-done { background: #9AA394; }
-  .cal-cell.sel .dot-late { background: #FFD9D4; }
-  .cal-cell.sel .dot-open { background: #DCF0D6; }
-  .cal-cell.sel .dot-run  { background: #CBDBFF; }
-  .cal-cell.sel .dot-done { background: #E4E7E0; }
+  /* ---------- CALENDARIO (compatto, non sborda) ----------
+     minmax(0,1fr) è la chiave: senza di esso il contenuto minimo delle celle
+     allarga le colonne e la domenica finisce fuori dallo schermo. */
+  .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; width: 100%; }
+  .cal-gg  { text-align: center; font-size: .625rem; font-weight: 900;
+             color: var(--inchiostro2); padding-bottom: 2px; min-width: 0; }
+  .cal-cel { min-width: 0; height: 38px; border-radius: .5rem; background: #FDFBF4;
+             border: 1.5px solid rgba(180,164,132,.5); display: flex; flex-direction: column;
+             align-items: center; justify-content: center; gap: 1px;
+             font-weight: 800; font-size: .8125rem; padding: 0; overflow: hidden; }
+  .cal-vuota { background: transparent; border-color: transparent; }
+  .cal-oggi  { border-color: var(--verde); border-width: 2.5px; }
+  .cal-sel   { background: var(--verde); color: #fff; border-color: var(--verde); }
+  .punti { display: flex; gap: 2px; height: 5px; align-items: center; }
+  .punto { width: 5px; height: 5px; border-radius: 50%; }
+  .p-ritardo { background: var(--allarme); }
+  .p-dafare  { background: var(--verde); }
+  .p-incorso { background: #1D4ED8; }
+  .p-fatto   { background: #9AA394; }
+  .cal-sel .p-ritardo { background: #FFD9D4; }
+  .cal-sel .p-dafare  { background: #DCF0D6; }
+  .cal-sel .p-incorso { background: #CBDBFF; }
+  .cal-sel .p-fatto   { background: #E4E7E0; }
 
-  /* ---- barra in basso + bottone aggiungi ---- */
-  #nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-         display: grid; grid-template-columns: repeat(5, 1fr);
-         background: var(--card); border-top: 1.5px solid var(--line);
-         padding-bottom: env(safe-area-inset-bottom, 0px); }
-  .tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-         padding: .5rem 0 .45rem; font-size: .625rem; font-weight: 800; color: var(--ink-2);
-         border-top: 3px solid transparent; }
-  .tab .ic { font-size: 1.35rem; line-height: 1; }
-  .tab[aria-current="page"] { color: var(--brand-2); background: #E7EEE3; border-top-color: var(--brand); }
+  /* ---------- animali ---------- */
+  .griglia-animali { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+  .foto-animale { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: .75rem;
+                  border: 1.5px solid var(--bordo); background: #EFEADC; display: block; }
+  .senza-foto { width: 100%; aspect-ratio: 4 / 3; border-radius: .75rem; border: 1.5px dashed var(--bordo);
+                background: #F2EDE0; display: grid; place-items: center; font-size: 2.25rem; }
 
-  #fab { position: fixed; right: 1rem; z-index: 45;
-         bottom: calc(78px + env(safe-area-inset-bottom, 0px));
-         height: 62px; padding: 0 1.4rem 0 1.15rem; border-radius: 999px;
-         background: var(--brand); color: #fff; font-weight: 900; font-size: 1.0625rem;
-         display: inline-flex; align-items: center; gap: .5rem;
-         box-shadow: 0 6px 18px rgba(20,40,20,.35); border: 3px solid #FBF7EC; }
-  #fab:active { filter: brightness(.92); }
+  /* ---------- barra in basso e bottone ---------- */
+  #barra { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+           display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+           background: var(--scheda); border-top: 1.5px solid var(--bordo);
+           padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .voce { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+          padding: .5rem 0 .45rem; font-size: .625rem; font-weight: 800; color: var(--inchiostro2);
+          border-top: 3px solid transparent; min-width: 0; }
+  .voce .ic { font-size: 1.35rem; line-height: 1; }
+  .voce[aria-current="page"] { color: var(--verde-cupo); background: #E7EEE3; border-top-color: var(--verde); }
 
-  .thumb { width: 100%; max-height: 210px; object-fit: cover; border-radius: .8rem;
-           border: 1.5px solid var(--line); display: block; }
-  #lightbox img { max-width: 100%; max-height: 88vh; object-fit: contain; border-radius: .5rem; }
-  .sheet-panel { animation: up .22s cubic-bezier(.2,.8,.2,1); }
-  @keyframes up { from { transform: translateY(16px); opacity: .5 } to { transform: none; opacity: 1 } }
+  #aggiungi { position: fixed; right: 1rem; z-index: 45;
+              bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+              height: 62px; padding: 0 1.4rem 0 1.15rem; border-radius: 999px;
+              background: var(--verde); color: #fff; font-weight: 900; font-size: 1.0625rem;
+              display: inline-flex; align-items: center; gap: .5rem;
+              box-shadow: 0 6px 18px rgba(20,40,20,.35); border: 3px solid #FBF7EC; }
+  #aggiungi:active { filter: brightness(.92); }
+
+  #pallino { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px;
+             border-radius: 999px; background: var(--allarme); color: #fff; font-size: .6875rem;
+             font-weight: 900; display: grid; place-items: center; padding: 0 4px;
+             border: 2px solid var(--salvia); }
+
+  .miniatura { width: 100%; max-height: 210px; object-fit: cover; border-radius: .8rem;
+               border: 1.5px solid var(--bordo); display: block; }
+  #lente img { max-width: 100%; max-height: 88vh; object-fit: contain; border-radius: .5rem; }
+  .pannello { animation: su .22s cubic-bezier(.2,.8,.2,1); }
+  @keyframes su { from { transform: translateY(16px); opacity: .5 } to { transform: none; opacity: 1 } }
   [hidden] { display: none !important; }
 </style>
 
 <body>
 
-<header class="sticky top-0 z-30" style="background:var(--sage);border-bottom:1.5px solid var(--sage-dark)">
-  <div class="flex items-center gap-2 px-3 py-2.5">
-    <h1 class="text-lg font-black flex items-center gap-1.5" style="color:#14200F"><span>🚜</span><span>Fattoria Tasks</span></h1>
-    <span id="conn" class="badge" style="background:#ffffffcc">…</span>
-    <div class="ml-auto flex items-center gap-1.5">
-      <button id="btn-settings" class="w-10 h-10 rounded-xl grid place-items-center text-xl" style="background:#ffffff99" aria-label="Impostazioni">⚙️</button>
-      <button id="btn-me" class="w-10 h-10 rounded-full grid place-items-center font-black text-white" style="background:var(--brand)" aria-label="Chi usa l'app">I</button>
+<header class="sticky top-0 z-30" style="background:var(--salvia);border-bottom:1.5px solid var(--salvia-cupo)">
+  <div class="flex items-center gap-1.5 px-3 py-2.5">
+    <h1 class="text-base font-black flex items-center gap-1.5 min-w-0" style="color:#14200F">
+      <span>🚜</span><span class="truncate">Fattoria Tasks</span>
+    </h1>
+    <span id="stato-rete" class="etichetta shrink-0" style="background:#ffffffcc">…</span>
+    <div class="ml-auto flex items-center gap-1.5 shrink-0">
+      <button id="bot-avvisi" class="relative w-10 h-10 rounded-xl grid place-items-center text-xl"
+              style="background:#ffffff99" aria-label="Avvisi">🔔<span id="pallino" hidden>0</span></button>
+      <button id="bot-impostazioni" class="w-10 h-10 rounded-xl grid place-items-center text-xl"
+              style="background:#ffffff99" aria-label="Impostazioni">⚙️</button>
+      <button id="bot-io" class="w-10 h-10 rounded-full grid place-items-center font-black text-white"
+              style="background:var(--verde)" aria-label="Chi usa l'app">I</button>
     </div>
   </div>
 </header>
 
-<div id="local-banner" hidden class="mx-4 mt-3 rounded-xl border-2 border-amber-500 bg-amber-50 p-3 text-sm font-bold text-amber-900"></div>
+<div id="avviso-locale" hidden class="mx-4 mt-3 rounded-xl border-2 border-amber-500 bg-amber-50 p-3 text-sm font-bold text-amber-900"></div>
 
 <main class="px-4 pt-4" style="padding-bottom:150px">
-  <section id="view-oggi"><div id="oggi-body" class="space-y-6">
+  <section id="vista-oggi"><div id="corpo-oggi" class="space-y-6">
     <div class="text-center py-12"><div class="text-5xl animate-pulse">🌾</div><p class="mt-3 font-black text-lg">Caricamento…</p></div>
   </div></section>
-
-  <section id="view-calendario" hidden><div id="calendario-body" class="space-y-5"></div></section>
-  <section id="view-lavori"     hidden><div id="lavori-body"     class="space-y-6"></div></section>
-  <section id="view-registro"   hidden><div id="registro-body"   class="space-y-3"></div></section>
-  <section id="view-spesa"      hidden><div id="spesa-body"      class="space-y-5"></div></section>
-  <section id="view-storico"    hidden><div id="storico-body"    class="space-y-3"></div></section>
+  <section id="vista-animali"  hidden><div id="corpo-animali"  class="space-y-5"></div></section>
+  <section id="vista-lavori"   hidden><div id="corpo-lavori"   class="space-y-6"></div></section>
+  <section id="vista-registro" hidden><div id="corpo-registro" class="space-y-4"></div></section>
+  <section id="vista-spesa"    hidden><div id="corpo-spesa"    class="space-y-5"></div></section>
+  <section id="vista-storico"  hidden><div id="corpo-storico"  class="space-y-3"></div></section>
 </main>
 
-<button id="fab"><span class="text-2xl leading-none">＋</span><span id="fab-label">Attività</span></button>
+<button id="aggiungi"><span class="text-2xl leading-none">＋</span><span id="etichetta-aggiungi">Attività</span></button>
 
-<nav id="nav" aria-label="Sezioni">
-  <button class="tab" data-view="oggi" aria-current="page"><span class="ic">🚜</span>Oggi</button>
-  <button class="tab" data-view="calendario"><span class="ic">📅</span>Calendario</button>
-  <button class="tab" data-view="lavori"><span class="ic">🔨</span>Lavori</button>
-  <button class="tab" data-view="registro"><span class="ic">📓</span>Registro</button>
-  <button class="tab" data-view="spesa"><span class="ic">🛒</span>Spesa</button>
+<nav id="barra" aria-label="Sezioni">
+  <button class="voce" data-vista="oggi" aria-current="page"><span class="ic">🚜</span>Oggi</button>
+  <button class="voce" data-vista="animali"><span class="ic">🐄</span>Animali</button>
+  <button class="voce" data-vista="lavori"><span class="ic">🔨</span>Lavori</button>
+  <button class="voce" data-vista="registro"><span class="ic">📓</span>Registro</button>
+  <button class="voce" data-vista="spesa"><span class="ic">🛒</span>Spesa</button>
 </nav>
 
-<div id="sheet" hidden class="fixed inset-0 z-50">
-  <div id="sheet-bg" class="absolute inset-0 bg-black/50"></div>
-  <div class="absolute inset-x-0 bottom-0 max-h-[94vh] flex flex-col sheet-panel rounded-t-3xl overflow-hidden" style="background:var(--cream)">
-    <div class="flex items-center gap-2 px-4 py-3" style="background:var(--sage)">
-      <h2 id="sheet-title" class="text-lg font-black" style="color:#14200F">Dettaglio</h2>
-      <button id="sheet-close" class="ml-auto w-10 h-10 rounded-xl grid place-items-center text-xl font-black" style="background:#ffffff99">✕</button>
+<div id="pannello" hidden class="fixed inset-0 z-50">
+  <div id="pannello-sfondo" class="absolute inset-0 bg-black/50"></div>
+  <div class="absolute inset-x-0 bottom-0 max-h-[94vh] flex flex-col pannello rounded-t-3xl overflow-hidden" style="background:var(--sabbia)">
+    <div class="flex items-center gap-2 px-4 py-3" style="background:var(--salvia)">
+      <h2 id="pannello-titolo" class="text-lg font-black min-w-0 truncate" style="color:#14200F">Dettaglio</h2>
+      <button id="pannello-chiudi" class="ml-auto w-10 h-10 rounded-xl grid place-items-center text-xl font-black shrink-0" style="background:#ffffff99">✕</button>
     </div>
-    <div id="sheet-body" class="flex-1 overflow-y-auto px-4 py-4 space-y-4"></div>
+    <div id="pannello-corpo" class="flex-1 overflow-y-auto px-4 py-4 space-y-4"></div>
   </div>
 </div>
 
-<div id="lightbox" hidden class="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-3">
+<div id="lente" hidden class="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-3">
   <img alt="Foto ingrandita">
-  <button id="lb-close" class="absolute top-4 right-4 w-12 h-12 rounded-full bg-white/90 text-2xl font-black">✕</button>
+  <button id="lente-chiudi" class="absolute top-4 right-4 w-12 h-12 rounded-full bg-white/90 text-2xl font-black">✕</button>
 </div>
 
-<input id="photo-input" type="file" accept="image/*" capture="environment" hidden>
-<div id="toast" hidden class="fixed z-[70] left-1/2 -translate-x-1/2 bottom-40 px-4 py-3 rounded-xl text-white font-bold text-sm shadow-xl max-w-[92vw] text-center" style="background:#20281A"></div>
+<input id="scegli-foto" type="file" accept="image/*" capture="environment" hidden>
+<div id="messaggio" hidden class="fixed z-[70] left-1/2 -translate-x-1/2 bottom-40 px-4 py-3 rounded-xl text-white font-bold text-sm shadow-xl max-w-[92vw] text-center" style="background:#20281A"></div>
 
 <script>
 'use strict';
@@ -228,896 +248,1326 @@
    CONFIGURAZIONE SUPABASE
    ========================================================================== */
 const SUPABASE_URL      = 'https://aiowitawkzyohycsxkxi.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpb3dpdGF3a3p5b2h5Y3N4a3hpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzMjgwNjMsImV4cCI6MjEwMDkwNDA2M30.w2PA_VHPZc-2LQJHy__yK73XnxVwGDOwKyiYQN5klXE';
-const BUCKET = 'farm-photos';
+const SUPABASE_ANON_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpb3dpdGF3a3p5b2h5Y3N4a3hpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzMjgwNjMsImV4cCI6MjEwMDkwNDA2M30.w2PA_VHPZc-2LQJHy__yK73XnxVwGDOwKyiYQN5klXE';
+const CONTENITORE_FOTO   = 'farm-photos';
 /* ========================================================================== */
 
-const CONFIGURED = /^https:\/\/[a-z0-9-]+\.supabase\.(co|in)\/?$/i.test(SUPABASE_URL.trim())
-                   && SUPABASE_ANON_KEY.trim().length > 20
-                   && !/^INCOLLA_QUI/.test(SUPABASE_ANON_KEY.trim());
+const CONFIGURATO = /^https:\/\/[a-z0-9-]+\.supabase\.(co|in)\/?$/i.test(SUPABASE_URL.trim())
+                    && SUPABASE_ANON_KEY.trim().length > 20
+                    && !/^INCOLLA_QUI/.test(SUPABASE_ANON_KEY.trim());
 
-const CATEGORIES = [{ v: 'Animali', e: '🐄' }, { v: 'Recinti', e: '🚧' }, { v: 'Macchine', e: '🚜' }, { v: 'Altro', e: '📌' }];
-const TIMES    = ['30m', '1h', '2h+'];
-const WHO      = ['Io', 'Anna', 'Tutti'];
-const PRIORITY = ['Alta', 'Media', 'Bassa'];
-const STATI    = ['Da fare', 'In corso', 'Completato'];
-const catEmoji = (v) => (CATEGORIES.find((c) => c.v === v) || {}).e || '📌';
+const CATEGORIE = [{ v: 'Animali', e: '🐄' }, { v: 'Recinti', e: '🚧' }, { v: 'Macchine', e: '🚜' }, { v: 'Altro', e: '📌' }];
+const TEMPI     = ['30m', '1h', '2h+'];
+const PERSONE   = ['Io', 'Anna', 'Tutti'];
+const PRIORITA  = ['Alta', 'Media', 'Bassa'];
+const STATI     = ['Da fare', 'In corso', 'Completato'];
+const SPECIE    = ['Bovino', 'Ovino', 'Caprino', 'Avicolo', 'Equino', 'Suino', 'Altro'];
+const EMOJI_SPECIE = { Bovino: '🐄', Ovino: '🐑', Caprino: '🐐', Avicolo: '🐔', Equino: '🐴', Suino: '🐖', Altro: '🐾' };
+const TIPI_EVENTO  = ['Vaccino', 'Sverminazione', 'Visita veterinaria', 'Integratore', 'Altro'];
+const RUOLI     = ['Veterinario', 'Mangimista', 'Meccanico', 'Fabbro', 'Altro'];
+const emojiCat  = (v) => (CATEGORIE.find((c) => c.v === v) || {}).e || '📌';
+const MESI = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
 
 /* ---------- Stato ---------- */
-let tasks      = [];
-let view       = 'oggi';
-let mine       = 'tutti';
-let me         = localStorage.getItem('fattoria_me') || 'Io';
-let loadFailed = false;
-let reloadSeq  = 0;
+let attivita   = [];
+let animali    = [];
+let interventi = [];
+let contatti   = [];
+let vista       = 'oggi';
+let filtroMiei  = 'tutti';
+let filtroReg   = 'Tutti';
+let io          = localStorage.getItem('fattoria_io') || 'Io';
+let caricoRotto = false;
+let seqCarico   = 0;
 
-// stato dello sheet: 'new' | 'edit' | 'settings' | null
-let sheetMode = null, sheetId = null, sheetKind = 'Lavoro';
-let form = {};                       // valori del form aperto nello sheet
-const photo = { sheet: null };
-
-// calendario
-let calY, calM, calSel;              // anno, mese (0-11), giorno selezionato (ISO)
+let modo = null, idAperto = null, tipoAperto = 'Lavoro', animaleAperto = null;
+let mod = {};                      // valori del modulo aperto
+const fotoScelta = { dati: null };
+let calA, calM, calSel;
 
 const $  = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+const pul = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Formattazione italiana scritta a mano: Intl dipende dalla lingua del
+// dispositivo e su alcuni browser darebbe "€1,230.00" invece di "1.230,00 €".
+const euro = (n) => {
+  if (n === null || n === undefined || n === '') return null;
+  const v = Number(n);
+  if (!isFinite(v)) return null;
+  const [interi, dec] = Math.abs(v).toFixed(2).split('.');
+  return (v < 0 ? '-' : '') + interi.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + dec + ' €';
+};
 
 /* ==========================================================================
    DATE
    ========================================================================== */
-const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const TODAY = iso(new Date());
-const plusDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
-const MESI = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
+const isoDi = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const OGGI = isoDi(new Date());
+const fraGiorni = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return isoDi(d); };
 
-function daysFromToday(isoDate) {
-  if (!isoDate) return null;
-  const [y, m, d] = isoDate.split('-').map(Number);
+function giorniDaOggi(g) {
+  if (!g) return null;
+  const [y, m, d] = g.split('-').map(Number);
   const a = new Date(y, m - 1, d), b = new Date(); b.setHours(0, 0, 0, 0);
   return Math.round((a - b) / 86400000);
 }
-function dateLabel(isoDate) {
-  const n = daysFromToday(isoDate);
+function etichettaData(g) {
+  const n = giorniDaOggi(g);
   if (n === null) return '';
   if (n === 0) return 'Oggi';
   if (n === 1) return 'Domani';
   if (n === -1) return 'Ieri';
   if (n < -1) return `${Math.abs(n)} gg in ritardo`;
-  const [y, m, d] = isoDate.split('-').map(Number);
+  const [y, m, d] = g.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
 }
-function dateLungo(isoDate) {
-  const [y, m, d] = isoDate.split('-').map(Number);
+function dataLunga(g) {
+  const [y, m, d] = g.split('-').map(Number);
   const t = new Date(y, m - 1, d).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
-  const pre = isoDate === TODAY ? 'Oggi · ' : isoDate === plusDays(1) ? 'Domani · ' : isoDate === plusDays(-1) ? 'Ieri · ' : '';
+  const pre = g === OGGI ? 'Oggi · ' : g === fraGiorni(1) ? 'Domani · ' : g === fraGiorni(-1) ? 'Ieri · ' : '';
   return pre + t.charAt(0).toUpperCase() + t.slice(1);
 }
-function stampLabel(ts) {
+function oraLunga(ts) {
   if (!ts) return '';
   const d = new Date(ts);
-  const g = iso(d) === TODAY ? 'Oggi' : iso(d) === plusDays(-1) ? 'Ieri'
+  const g = isoDi(d) === OGGI ? 'Oggi' : isoDi(d) === fraGiorni(-1) ? 'Ieri'
     : d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
   return `${g} · ${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
 }
+function eta(nascita) {
+  if (!nascita) return '';
+  const [y, m, d] = nascita.split('-').map(Number);
+  const n = new Date(y, m - 1, d), o = new Date();
+  let anni = o.getFullYear() - n.getFullYear();
+  let mesi = o.getMonth() - n.getMonth();
+  if (o.getDate() < n.getDate()) mesi--;
+  if (mesi < 0) { anni--; mesi += 12; }
+  if (anni <= 0) return mesi <= 1 ? `${mesi} mese` : `${mesi} mesi`;
+  return anni === 1 ? (mesi ? `1 anno e ${mesi} mesi` : '1 anno') : (mesi ? `${anni} anni e ${mesi} mesi` : `${anni} anni`);
+}
 
 /* ==========================================================================
-   DATI: Supabase oppure memoria del dispositivo
+   ARCHIVIO: Supabase oppure memoria del dispositivo
    ========================================================================== */
-let db = null, channel = null;
-const LS = 'fattoria_v2';
+let sb = null, canale = null;
+const CHIAVE_LOCALE = 'fattoria_v4';
+const TABELLE = { attivita: 'attivita', animali: 'animali', interventi: 'interventi_animali', contatti: 'contatti' };
 
-const localStore = {
-  read()   { try { return JSON.parse(localStorage.getItem(LS)) || []; } catch { return []; } },
-  write(v) { try { localStorage.setItem(LS, JSON.stringify(v)); } catch (e) { toast('Memoria del browser piena', true); } },
-  async load() {
-    let all = this.read();
-    if (!all.length) {
-      all = [['Cibo animali', 'Tutti', 'Animali'], ['Acqua animali', 'Tutti', 'Animali'],
-             ['Raccolta uova', 'Anna', 'Animali'], ['Controllo recinti', 'Io', 'Recinti'],
-             ['Mungitura', 'Tutti', 'Animali']]
-        .map((r, i) => ({ id: crypto.randomUUID(), kind: 'Routine', title: r[0], assigned_to: r[1],
-          category: r[2], is_daily_routine: true, estimated_time: '30m', priority: 'Media',
-          status: 'Da fare', sort_order: i + 1, created_at: new Date().toISOString() }));
-      this.write(all);
+const archivioLocale = {
+  leggi() { try { return JSON.parse(localStorage.getItem(CHIAVE_LOCALE)) || null; } catch { return null; } },
+  scrivi(d) { try { localStorage.setItem(CHIAVE_LOCALE, JSON.stringify(d)); } catch (e) { avvisa('Memoria del browser piena', true); } },
+  async carica() {
+    let d = this.leggi();
+    if (!d) {
+      d = {
+        attivita: [['Cibo animali', 'Tutti', 'Animali'], ['Acqua animali', 'Tutti', 'Animali'],
+                   ['Raccolta uova', 'Anna', 'Animali'], ['Controllo recinti', 'Io', 'Recinti']]
+          .map((r, i) => ({ id: crypto.randomUUID(), tipo: 'Routine', titolo: r[0], assegnato_a: r[1],
+            categoria: r[2], routine_giornaliera: true, tempo_stimato: '30m', priorita: 'Media',
+            stato: 'Da fare', ordine: i + 1, creato_il: new Date().toISOString() })),
+        animali: [], interventi: [], contatti: []
+      };
+      this.scrivi(d);
     }
-    return all;
+    return { attivita: d.attivita || [], animali: d.animali || [], interventi: d.interventi || [], contatti: d.contatti || [] };
   },
-  async insert(row) {
-    const t = { id: crypto.randomUUID(), created_at: new Date().toISOString(), status: 'Da fare',
-                priority: 'Media', is_daily_routine: false, sort_order: 0, ...row };
-    const all = this.read(); all.push(t); this.write(all); return t;
+  async inserisci(coll, riga) {
+    const d = this.leggi() || { attivita: [], animali: [], interventi: [], contatti: [] };
+    const r = { id: crypto.randomUUID(), creato_il: new Date().toISOString(), ...riga };
+    (d[coll] = d[coll] || []).push(r); this.scrivi(d); return r;
   },
-  async update(id, patch) {
-    const all = this.read(); const i = all.findIndex((t) => t.id === id);
+  async modifica(coll, id, cambi) {
+    const d = this.leggi(); const i = (d[coll] || []).findIndex((x) => x.id === id);
     if (i < 0) throw new Error('Non trovato');
-    all[i] = { ...all[i], ...patch }; this.write(all); return all[i];
+    d[coll][i] = { ...d[coll][i], ...cambi }; this.scrivi(d); return d[coll][i];
   },
-  async remove(id) { this.write(this.read().filter((t) => t.id !== id)); },
-  async uploadPhoto(blob, dataUrl) { return dataUrl; }
+  async elimina(coll, id) {
+    const d = this.leggi();
+    d[coll] = (d[coll] || []).filter((x) => x.id !== id);
+    if (coll === 'animali') d.interventi = (d.interventi || []).filter((x) => x.animale_id !== id);
+    this.scrivi(d);
+  },
+  async caricaFoto(blob, dataUrl) { return dataUrl; }
 };
 
-const remoteStore = {
-  async load() {
-    const { data, error } = await db.from('tasks').select('*').order('sort_order').order('created_at', { ascending: false });
-    if (error) throw error; return data || [];
+const archivioRemoto = {
+  async carica() {
+    const [a, an, iv, co] = await Promise.all([
+      sb.from(TABELLE.attivita).select('*').order('ordine').order('creato_il', { ascending: false }),
+      sb.from(TABELLE.animali).select('*').order('nome'),
+      sb.from(TABELLE.interventi).select('*').order('data_evento', { ascending: false }),
+      sb.from(TABELLE.contatti).select('*').order('nome')
+    ]);
+    for (const r of [a, an, iv, co]) if (r.error) throw r.error;
+    return { attivita: a.data || [], animali: an.data || [], interventi: iv.data || [], contatti: co.data || [] };
   },
-  async insert(row) { const { data, error } = await db.from('tasks').insert(row).select().single(); if (error) throw error; return data; },
-  async update(id, p) { const { data, error } = await db.from('tasks').update(p).eq('id', id).select().single(); if (error) throw error; return data; },
-  async remove(id) { const { error } = await db.from('tasks').delete().eq('id', id); if (error) throw error; },
-  async uploadPhoto(blob) {
-    const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
-    const { error } = await db.storage.from(BUCKET).upload(name, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
+  async inserisci(coll, riga) {
+    const { data, error } = await sb.from(TABELLE[coll]).insert(riga).select().single();
+    if (error) throw error; return data;
+  },
+  async modifica(coll, id, cambi) {
+    const { data, error } = await sb.from(TABELLE[coll]).update(cambi).eq('id', id).select().single();
+    if (error) throw error; return data;
+  },
+  async elimina(coll, id) {
+    const { error } = await sb.from(TABELLE[coll]).delete().eq('id', id);
+    if (error) throw error;
+  },
+  async caricaFoto(blob) {
+    const nome = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+    const { error } = await sb.storage.from(CONTENITORE_FOTO).upload(nome, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
     if (error) throw new Error('Foto non caricata: ' + error.message);
-    return db.storage.from(BUCKET).getPublicUrl(name).data.publicUrl;
+    return sb.storage.from(CONTENITORE_FOTO).getPublicUrl(nome).data.publicUrl;
   }
 };
 
-let store = localStore;
+let archivio = archivioLocale;
+const elenco = { attivita: () => attivita, animali: () => animali, interventi: () => interventi, contatti: () => contatti };
 
 /* ==========================================================================
-   FOTO
+   FOTO — sempre dalla fotocamera o dalla galleria, mai un indirizzo da incollare
    ========================================================================== */
-async function shrink(file, max = 1280, q = 0.72) {
-  const bmp = await (async () => {
+async function rimpicciolisci(file, max = 1280, q = 0.72) {
+  const img = await (async () => {
     if (window.createImageBitmap) { try { return await createImageBitmap(file); } catch (e) {} }
-    return await new Promise((res, rej) => {
+    return await new Promise((ok, ko) => {
       const im = new Image(), fr = new FileReader();
-      fr.onload = () => { im.onload = () => res(im); im.onerror = rej; im.src = fr.result; };
-      fr.onerror = rej; fr.readAsDataURL(file);
+      fr.onload = () => { im.onload = () => ok(im); im.onerror = ko; im.src = fr.result; };
+      fr.onerror = ko; fr.readAsDataURL(file);
     });
   })();
-  const w0 = bmp.width || bmp.naturalWidth, h0 = bmp.height || bmp.naturalHeight;
+  const w0 = img.width || img.naturalWidth, h0 = img.height || img.naturalHeight;
   const k = Math.min(1, max / Math.max(w0, h0));
   const c = document.createElement('canvas');
   c.width = Math.round(w0 * k); c.height = Math.round(h0 * k);
-  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
   const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', q));
   return { blob, dataUrl: c.toDataURL('image/jpeg', q) };
 }
 
-$('#photo-input').addEventListener('change', async (ev) => {
+$('#scegli-foto').addEventListener('change', async (ev) => {
   const input = ev.target;
   const f = input.files && input.files[0];
   if (!f) { input.value = ''; return; }
   try {
-    toast('Preparo la foto…');
-    photo.sheet = await shrink(f);
-    // Prima di ridisegnare il modulo salvo quello che è già stato scritto,
-    // altrimenti titolo e note digitati andrebbero persi.
-    leggiCampi();
-    buildSheet();                                   // ridisegna mostrando l'anteprima
-    toast('Foto pronta (' + Math.round(photo.sheet.blob.size / 1024) + ' KB)');
-  } catch (e) { toast('Foto non leggibile: ' + (e.message || e), true); }
+    avvisa('Preparo la foto…');
+    fotoScelta.dati = await rimpicciolisci(f);
+    leggiCampi();                       // non perdere quello che è già stato scritto
+    disegnaPannello();
+    avvisa('Foto pronta (' + Math.round(fotoScelta.dati.blob.size / 1024) + ' KB)');
+  } catch (e) { avvisa('Foto non leggibile: ' + (e.message || e), true); }
   finally { input.value = ''; }
 });
 
 /* ==========================================================================
-   UI DI SERVIZIO
+   SERVIZI UI
    ========================================================================== */
-let toastTimer = null;
-function toast(msg, err = false) {
-  const el = $('#toast');
-  el.textContent = msg; el.style.background = err ? '#8C1D18' : '#20281A'; el.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, err ? 5000 : 2100);
+let timerMsg = null;
+function avvisa(testo, errore = false) {
+  const el = $('#messaggio');
+  el.textContent = testo; el.style.background = errore ? '#8C1D18' : '#20281A'; el.hidden = false;
+  clearTimeout(timerMsg);
+  timerMsg = setTimeout(() => { el.hidden = true; }, errore ? 5000 : 2100);
 }
-function setConn(text, bg, fg) {
-  const el = $('#conn'); el.textContent = text;
-  el.style.background = bg; el.style.color = fg || '#14200F'; el.style.borderColor = 'transparent';
+function statoRete(testo, sfondo, colore) {
+  const el = $('#stato-rete');
+  el.textContent = testo; el.style.background = sfondo;
+  el.style.color = colore || '#14200F'; el.style.borderColor = 'transparent';
 }
-function chipRow(values, current, campo, cls = 'flex-1') {
-  return values.map((v) => {
+function pastiglie(valori, attuale, campo, classe = 'flex-1') {
+  return valori.map((v) => {
     const val = typeof v === 'object' ? v.v : v;
-    const lab = typeof v === 'object' ? `${v.e} ${v.v}` : v;
-    return `<button type="button" class="chip ${cls}" aria-pressed="${current === val}"
-              data-set="${campo}" data-value="${esc(val)}">${esc(lab)}</button>`;
+    const et  = typeof v === 'object' ? `${v.e} ${v.v}` : v;
+    return `<button type="button" class="past ${classe}" aria-pressed="${attuale === val}"
+              data-imposta="${campo}" data-valore="${pul(val)}">${pul(et)}</button>`;
   }).join('');
 }
-function badgesOf(t) {
+function etichetteDi(t) {
   const out = [];
-  if (t.category) out.push(`<span class="badge">${catEmoji(t.category)} ${esc(t.category)}</span>`);
-  if (t.estimated_time) out.push(`<span class="badge">⏱️ ${esc(t.estimated_time)}</span>`);
-  out.push(`<span class="badge badge-who">👤 ${esc(t.assigned_to)}</span>`);
-  if (t.priority === 'Alta' && t.status !== 'Completato') out.push('<span class="badge badge-pri">🔥 Alta</span>');
-  if (t.due_date && t.status !== 'Completato') {
-    const n = daysFromToday(t.due_date);
-    out.push(`<span class="badge ${n < 0 ? 'badge-hot' : n === 0 ? 'badge-today' : ''}">📅 ${esc(dateLabel(t.due_date))}</span>`);
+  if (t.categoria) out.push(`<span class="etichetta">${emojiCat(t.categoria)} ${pul(t.categoria)}</span>`);
+  if (t.tempo_stimato) out.push(`<span class="etichetta">⏱️ ${pul(t.tempo_stimato)}</span>`);
+  out.push(`<span class="etichetta et-chi">👤 ${pul(t.assegnato_a)}</span>`);
+  if (t.priorita === 'Alta' && t.stato !== 'Completato') out.push('<span class="etichetta et-alta">🔥 Alta</span>');
+  if (t.scadenza && t.stato !== 'Completato') {
+    const n = giorniDaOggi(t.scadenza);
+    out.push(`<span class="etichetta ${n < 0 ? 'et-ritardo' : n === 0 ? 'et-oggi' : ''}">📅 ${pul(etichettaData(t.scadenza))}</span>`);
   }
   return out.join('');
 }
-const photoTag = (t, cls = 'mt-2') => t.photo_url
-  ? `<img src="${esc(t.photo_url)}" class="thumb ${cls}" alt="Foto" loading="lazy" data-lb="${esc(t.photo_url)}">` : '';
+const tagFoto = (url, classe = 'mt-2') => url
+  ? `<img src="${pul(url)}" class="miniatura ${classe}" alt="Foto" loading="lazy" data-lente="${pul(url)}">` : '';
 
 /* ==========================================================================
    SELEZIONI
    ========================================================================== */
-const routineDone = (t) => t.last_done_date === TODAY;
-const isMine = (t) => mine === 'tutti' || t.assigned_to === me || t.assigned_to === 'Tutti';
-const byUrgency = (a, b) => {
-  const da = a.due_date ? daysFromToday(a.due_date) : 9e5;
-  const dbb = b.due_date ? daysFromToday(b.due_date) : 9e5;
-  if (da !== dbb) return da - dbb;
+const routineFatta = (t) => t.ultimo_completamento === OGGI;
+const eMio = (t) => filtroMiei === 'tutti' || t.assegnato_a === io || t.assegnato_a === 'Tutti';
+const perUrgenza = (a, b) => {
+  const da = a.scadenza ? giorniDaOggi(a.scadenza) : 9e5;
+  const db = b.scadenza ? giorniDaOggi(b.scadenza) : 9e5;
+  if (da !== db) return da - db;
   const r = { Alta: 0, Media: 1, Bassa: 2 };
-  const pa = r[a.priority] ?? 1, pb = r[b.priority] ?? 1;
+  const pa = r[a.priorita] ?? 1, pb = r[b.priorita] ?? 1;
   if (pa !== pb) return pa - pb;
-  return String(b.created_at).localeCompare(String(a.created_at));
+  return String(b.creato_il).localeCompare(String(a.creato_il));
 };
-const routines = () => tasks.filter((t) => t.kind === 'Routine').sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-const lavori   = () => tasks.filter((t) => t.kind === 'Lavoro');
-const note     = () => tasks.filter((t) => t.kind === 'Nota').sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-const spesa    = () => tasks.filter((t) => t.kind === 'Spesa');
+const leRoutine = () => attivita.filter((t) => t.tipo === 'Routine').sort((a, b) => (a.ordine || 0) - (b.ordine || 0));
+const iLavori   = () => attivita.filter((t) => t.tipo === 'Lavoro');
+const leNote    = () => attivita.filter((t) => t.tipo === 'Nota').sort((a, b) => String(b.creato_il).localeCompare(String(a.creato_il)));
+const laSpesa   = () => attivita.filter((t) => t.tipo === 'Spesa');
+const interventiDi = (idAn) => interventi.filter((x) => x.animale_id === idAn)
+  .sort((a, b) => String(b.data_evento).localeCompare(String(a.data_evento)));
+const spesaTotale = (an) => Number(an.costo_acquisto || 0)
+  + interventiDi(an.id).reduce((s, x) => s + Number(x.costo || 0), 0);
 
 /* ==========================================================================
-   SCHEDE
+   AVVISI (campanella)
    ========================================================================== */
-function cardLavoro(t, azioni = true) {
-  const late = t.status !== 'Completato' && t.due_date && daysFromToday(t.due_date) < 0;
-  const fatto = t.status === 'Completato';
+function avvisiCorrenti() {
+  const v = [];
+  const ritardo = iLavori().filter((t) => t.stato !== 'Completato' && t.scadenza && giorniDaOggi(t.scadenza) < 0);
+  const oggiSc  = iLavori().filter((t) => t.stato !== 'Completato' && t.scadenza === OGGI);
+  const domani  = iLavori().filter((t) => t.stato !== 'Completato' && t.scadenza === fraGiorni(1));
+  const inCorso = iLavori().filter((t) => t.stato === 'In corso');
+  const rtMancanti = leRoutine().filter((t) => !routineFatta(t));
+  const daComprare = laSpesa().filter((t) => t.stato !== 'Completato');
+
+  if (ritardo.length) v.push({ ico: '⛔', testo: `${ritardo.length} ${ritardo.length === 1 ? 'lavoro in ritardo' : 'lavori in ritardo'}`,
+    dettaglio: ritardo.slice(0, 3).map((t) => t.titolo).join(' · '), vista: 'lavori', forte: true });
+  if (oggiSc.length) v.push({ ico: '📅', testo: `${oggiSc.length} in scadenza oggi`,
+    dettaglio: oggiSc.slice(0, 3).map((t) => t.titolo).join(' · '), vista: 'oggi' });
+  if (inCorso.length) v.push({ ico: '🔄', testo: `${inCorso.length} ${inCorso.length === 1 ? 'lavoro iniziato' : 'lavori iniziati'} e non finiti`,
+    dettaglio: inCorso.slice(0, 3).map((t) => t.titolo).join(' · '), vista: 'lavori' });
+  if (rtMancanti.length) v.push({ ico: '☀️', testo: `${rtMancanti.length} routine da fare oggi`,
+    dettaglio: rtMancanti.slice(0, 4).map((t) => t.titolo).join(' · '), vista: 'oggi' });
+  if (daComprare.length) v.push({ ico: '🛒', testo: `${daComprare.length} ${daComprare.length === 1 ? 'articolo da comprare' : 'articoli da comprare'}`,
+    dettaglio: daComprare.slice(0, 4).map((t) => t.titolo).join(' · '), vista: 'spesa' });
+  if (domani.length) v.push({ ico: '🌅', testo: `${domani.length} in scadenza domani`,
+    dettaglio: domani.slice(0, 3).map((t) => t.titolo).join(' · '), vista: 'oggi' });
+  return v;
+}
+
+function aggiornaPallino() {
+  const n = avvisiCorrenti().filter((a) => a.forte || /ritardo|oggi|comprare/.test(a.testo)).length;
+  const p = $('#pallino');
+  p.textContent = n; p.hidden = n === 0;
+}
+
+function apriAvvisi() {
+  modo = 'avvisi';
+  $('#pannello-titolo').textContent = 'Avvisi';
+  const v = avvisiCorrenti();
+  $('#pannello-corpo').innerHTML = v.length ? v.map((a) => `
+      <button type="button" class="scheda tocca w-full text-left ${a.forte ? 'scheda-urgente' : ''}" data-vista="${a.vista}">
+        <div class="flex items-start gap-3">
+          <span class="text-2xl shrink-0">${a.ico}</span>
+          <span class="flex-1 min-w-0">
+            <span class="block font-black">${pul(a.testo)}</span>
+            ${a.dettaglio ? `<span class="block text-sm font-semibold mt-0.5 truncate" style="color:var(--inchiostro2)">${pul(a.dettaglio)}</span>` : ''}
+          </span>
+          <span class="text-xl shrink-0" style="color:var(--inchiostro2)">›</span>
+        </div>
+      </button>`).join('')
+    : `<div class="scheda text-center py-10"><div class="text-5xl">✅</div>
+        <p class="mt-2 font-black text-lg">Tutto in ordine</p>
+        <p class="mt-1 text-sm font-semibold" style="color:var(--inchiostro2)">Nessuna scadenza, nessuna spesa in attesa.</p></div>`;
+  apriPannello();
+}
+
+/* ==========================================================================
+   SCHEDE ATTIVITÀ
+   ========================================================================== */
+function schedaLavoro(t, azioni = true) {
+  const ritardo = t.stato !== 'Completato' && t.scadenza && giorniDaOggi(t.scadenza) < 0;
+  const fatto = t.stato === 'Completato';
   return `
-    <article class="card card-tap ${late ? 'card-hot' : ''} ${fatto ? 'card-done' : ''}" data-open="${t.id}" role="button" tabindex="0">
+    <article class="scheda tocca ${ritardo ? 'scheda-urgente' : ''} ${fatto ? 'scheda-fatta' : ''}" data-apri="${t.id}" role="button" tabindex="0">
       <div class="flex items-start gap-2">
-        <h3 class="flex-1 font-black text-base leading-tight ${fatto ? 'line-through opacity-60' : ''}">${esc(t.title)}</h3>
-        ${azioni && !fatto ? `<button class="btn btn-primary btn-sm shrink-0" data-act="${t.status === 'Da fare' ? 'start' : 'done'}" data-id="${t.id}">
-             ${t.status === 'Da fare' ? '▶ Inizia' : '✓ Fatto'}</button>`
-          : `<span class="text-xl shrink-0" style="color:var(--ink-2)">›</span>`}
+        <h3 class="flex-1 font-black text-base leading-tight ${fatto ? 'line-through opacity-60' : ''}">${pul(t.titolo)}</h3>
+        ${azioni && !fatto ? `<button class="bot bot-verde bot-piccolo shrink-0" data-azione="${t.stato === 'Da fare' ? 'inizia' : 'finisci'}" data-id="${t.id}">
+             ${t.stato === 'Da fare' ? '▶ Inizia' : '✓ Fatto'}</button>`
+          : '<span class="text-xl shrink-0" style="color:var(--inchiostro2)">›</span>'}
       </div>
-      <div class="flex flex-wrap gap-1.5 mt-2">${badgesOf(t)}</div>
-      ${t.notes ? `<p class="mt-2 text-sm font-semibold" style="color:var(--ink-2)">${esc(t.notes)}</p>` : ''}
-      ${photoTag(t)}
+      <div class="flex flex-wrap gap-1.5 mt-2">${etichetteDi(t)}</div>
+      ${t.note ? `<p class="mt-2 text-sm font-semibold" style="color:var(--inchiostro2)">${pul(t.note)}</p>` : ''}
+      ${tagFoto(t.foto_url)}
     </article>`;
 }
 
 function rigaRoutine(t) {
   return `
-    <div class="rt ${routineDone(t) ? 'rt-on' : ''}">
-      <button type="button" class="rt-box" data-act="routine" data-id="${t.id}"
-              aria-label="${routineDone(t) ? 'Annulla' : 'Segna come fatto'}">✓</button>
-      <button type="button" class="rt-open" data-open="${t.id}">
-        <span class="rt-title">${esc(t.title)}</span>
+    <div class="riga ${routineFatta(t) ? 'riga-ok' : ''}">
+      <button type="button" class="cerchio" data-azione="routine" data-id="${t.id}"
+              aria-label="${routineFatta(t) ? 'Annulla' : 'Segna come fatto'}">✓</button>
+      <button type="button" class="riga-apri" data-apri="${t.id}">
+        <span class="riga-tit">${pul(t.titolo)}</span>
         <span class="mt-1 flex flex-wrap gap-1.5">
-          <span class="badge badge-who">👤 ${esc(t.assigned_to)}</span>
-          ${t.estimated_time ? `<span class="badge">⏱️ ${esc(t.estimated_time)}</span>` : ''}
+          <span class="etichetta et-chi">👤 ${pul(t.assegnato_a)}</span>
+          ${t.tempo_stimato ? `<span class="etichetta">⏱️ ${pul(t.tempo_stimato)}</span>` : ''}
         </span>
       </button>
-      <span class="text-xl" style="color:var(--ink-2)">›</span>
+      <span class="text-xl shrink-0" style="color:var(--inchiostro2)">›</span>
     </div>`;
 }
 
 /* ==========================================================================
-   SEZIONE: OGGI
-   ========================================================================== */
-function renderOggi() {
-  const rt = routines();
-  const fatte = rt.filter(routineDone).length;
-  const inCorso = lavori().filter((t) => t.status === 'In corso').sort(byUrgency);
-  const urgenti = lavori().filter((t) => t.status === 'Da fare' && t.due_date && daysFromToday(t.due_date) <= 0).sort(byUrgency);
-  const domani  = lavori().filter((t) => t.status === 'Da fare' && t.due_date && daysFromToday(t.due_date) === 1).sort(byUrgency);
-
-  let h = '';
-  if (urgenti.length) h += `<section><h2 class="h-sec">⚠️ Da fare oggi <span class="h-count">${urgenti.length}</span></h2>
-      <div class="space-y-3">${urgenti.map((t) => cardLavoro(t)).join('')}</div></section>`;
-  if (inCorso.length) h += `<section><h2 class="h-sec">🔄 In corso <span class="h-count">${inCorso.length}</span></h2>
-      <div class="space-y-3">${inCorso.map((t) => cardLavoro(t)).join('')}</div></section>`;
-  if (!urgenti.length && !inCorso.length) h += `<section class="card text-center py-8">
-      <div class="text-4xl">👍</div><p class="mt-2 font-black">Nessuna scadenza oggi</p>
-      <p class="mt-1 text-sm font-semibold" style="color:var(--ink-2)">Guarda il Calendario per i prossimi giorni.</p></section>`;
-
-  h += `<section>
-      <h2 class="h-sec">☀️ Routine di oggi <span class="h-count">${fatte}/${rt.length}</span></h2>
-      <div class="space-y-2.5">${rt.length ? rt.map(rigaRoutine).join('')
-        : '<p class="card text-center font-bold py-6">Nessuna routine. Aggiungila col pulsante ＋</p>'}</div>
-      <p class="text-xs font-semibold mt-2 px-1" style="color:var(--ink-2)">
-        Cerchietto = fatto · tocca il nome per modificarla</p>
-    </section>`;
-
-  if (domani.length) h += `<section><h2 class="h-sec">🌅 Domani <span class="h-count">${domani.length}</span></h2>
-      <div class="space-y-3">${domani.map((t) => cardLavoro(t)).join('')}</div></section>`;
-
-  $('#oggi-body').innerHTML = h;
-}
-
-/* ==========================================================================
-   SEZIONE: CALENDARIO
+   CALENDARIO (widget compatto, in cima alla Home)
    ========================================================================== */
 function delGiorno(g) {
-  const aperte  = lavori().filter((t) => t.due_date === g && t.status !== 'Completato').sort(byUrgency);
-  const fatte   = lavori().filter((t) => t.due_date === g && t.status === 'Completato');
-  const fatteIn = lavori().filter((t) => t.status === 'Completato' && t.due_date !== g
-                                        && String(t.completed_at || '').slice(0, 10) === g);
-  const rtFatte = routines().filter((t) => t.last_done_date === g);
-  return { aperte, fatte: fatte.concat(fatteIn), rtFatte };
+  const aperte = iLavori().filter((t) => t.scadenza === g && t.stato !== 'Completato').sort(perUrgenza);
+  const fatte  = iLavori().filter((t) => t.stato === 'Completato'
+    && (t.scadenza === g || String(t.completato_il || '').slice(0, 10) === g));
+  const rt     = leRoutine().filter((t) => t.ultimo_completamento === g);
+  return { aperte, fatte, rt };
 }
 
-function renderCalendario() {
-  const primo = new Date(calY, calM, 1);
-  const giorniMese = new Date(calY, calM + 1, 0).getDate();
-  const offset = (primo.getDay() + 6) % 7;            // settimana che inizia lunedì
+function widgetCalendario() {
+  const primo = new Date(calA, calM, 1);
+  const quanti = new Date(calA, calM + 1, 0).getDate();
+  const salto = (primo.getDay() + 6) % 7;              // la settimana inizia lunedì
 
   let celle = '';
-  for (let i = 0; i < offset; i++) celle += '<div class="cal-cell out"></div>';
-  for (let d = 1; d <= giorniMese; d++) {
-    const g = `${calY}-${String(calM + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    const { aperte, fatte, rtFatte } = delGiorno(g);
-    const late = aperte.some((t) => daysFromToday(t.due_date) < 0);
-    const run  = aperte.some((t) => t.status === 'In corso');
-    let dots = '';
-    if (late) dots += '<span class="dot dot-late"></span>';
-    if (run)  dots += '<span class="dot dot-run"></span>';
-    if (aperte.length && !late) dots += '<span class="dot dot-open"></span>';
-    if (fatte.length + rtFatte.length) dots += '<span class="dot dot-done"></span>';
-    const cls = ['cal-cell', g === TODAY ? 'today' : '', g === calSel ? 'sel' : ''].join(' ');
-    celle += `<button type="button" class="${cls}" data-cal="${g}">
-        <span>${d}</span><span class="cal-dots">${dots}</span></button>`;
+  for (let i = 0; i < salto; i++) celle += '<div class="cal-cel cal-vuota"></div>';
+  for (let d = 1; d <= quanti; d++) {
+    const g = `${calA}-${String(calM + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const { aperte, fatte, rt } = delGiorno(g);
+    const ritardo = aperte.some((t) => giorniDaOggi(t.scadenza) < 0);
+    const corso   = aperte.some((t) => t.stato === 'In corso');
+    let p = '';
+    if (ritardo) p += '<span class="punto p-ritardo"></span>';
+    if (corso)   p += '<span class="punto p-incorso"></span>';
+    if (aperte.length && !ritardo) p += '<span class="punto p-dafare"></span>';
+    if (fatte.length + rt.length) p += '<span class="punto p-fatto"></span>';
+    celle += `<button type="button" class="cal-cel ${g === OGGI ? 'cal-oggi' : ''} ${g === calSel ? 'cal-sel' : ''}" data-giorno="${g}">
+        <span>${d}</span><span class="punti">${p}</span></button>`;
   }
 
-  const { aperte, fatte, rtFatte } = delGiorno(calSel);
+  const ritardi = iLavori().filter((t) => t.stato !== 'Completato' && t.scadenza && giorniDaOggi(t.scadenza) < 0).length;
+  const oggiSc  = iLavori().filter((t) => t.stato !== 'Completato' && t.scadenza === OGGI).length;
 
-  $('#calendario-body').innerHTML = `
-    <div class="card">
-      <div class="flex items-center gap-2">
-        <button class="btn btn-ghost btn-sm" data-act="cal-prev" aria-label="Mese precedente">‹</button>
-        <h2 class="flex-1 text-center font-black text-base">${MESI[calM]} ${calY}</h2>
-        <button class="btn btn-ghost btn-sm" data-act="cal-next" aria-label="Mese successivo">›</button>
+  return `<div class="scheda scheda-fitta">
+      <div class="flex items-center gap-1">
+        <button class="bot bot-chiaro bot-piccolo px-3" data-azione="mese-prec" aria-label="Mese precedente">‹</button>
+        <h2 class="flex-1 text-center font-black text-sm truncate">${MESI[calM]} ${calA}</h2>
+        <button class="bot bot-chiaro bot-piccolo px-3" data-azione="mese-succ" aria-label="Mese successivo">›</button>
       </div>
-      <div class="cal-grid mt-3">
-        ${['L', 'M', 'M', 'G', 'V', 'S', 'D'].map((d) => `<div class="cal-dow">${d}</div>`).join('')}
+      <div class="cal mt-2">
+        ${['L', 'M', 'M', 'G', 'V', 'S', 'D'].map((d) => `<div class="cal-gg">${d}</div>`).join('')}
         ${celle}
       </div>
-      <div class="flex flex-wrap gap-3 mt-3 text-xs font-bold" style="color:var(--ink-2)">
-        <span class="flex items-center gap-1"><span class="dot dot-late"></span>in ritardo</span>
-        <span class="flex items-center gap-1"><span class="dot dot-open"></span>da fare</span>
-        <span class="flex items-center gap-1"><span class="dot dot-run"></span>in corso</span>
-        <span class="flex items-center gap-1"><span class="dot dot-done"></span>fatto</span>
+      <div class="flex items-center gap-2 mt-2 flex-wrap">
+        ${ritardi ? `<span class="etichetta et-ritardo">⛔ ${ritardi} in ritardo</span>` : ''}
+        ${oggiSc ? `<span class="etichetta et-oggi">📅 ${oggiSc} oggi</span>` : ''}
+        ${!ritardi && !oggiSc ? '<span class="etichetta">nessuna scadenza urgente</span>' : ''}
+        <button class="bot bot-chiaro bot-piccolo ml-auto" data-azione="cal-oggi">Oggi</button>
+        <button class="bot bot-chiaro bot-piccolo" data-vista="storico">📋 Storico</button>
       </div>
-      <div class="flex gap-2 mt-3">
-        <button class="btn btn-ghost btn-sm flex-1" data-act="cal-today">Vai a oggi</button>
-        <button class="btn btn-ghost btn-sm flex-1" data-view="storico">📋 Storico completo</button>
+    </div>`;
+}
+
+/* ==========================================================================
+   HOME: scadenze -> attività del giorno scelto -> routine
+   ========================================================================== */
+function disegnaOggi() {
+  const rt = leRoutine();
+  const fatte = rt.filter(routineFatta).length;
+  const scadute = iLavori().filter((t) => t.stato !== 'Completato' && t.scadenza && giorniDaOggi(t.scadenza) <= 0).sort(perUrgenza);
+  const inCorso = iLavori().filter((t) => t.stato === 'In corso' && !scadute.includes(t)).sort(perUrgenza);
+
+  let h = widgetCalendario();
+
+  h += `<section><h2 class="titolo-sez">⚠️ Scadenze <span class="conta">${scadute.length}</span></h2>
+      <div class="space-y-3">${scadute.length ? scadute.map((t) => schedaLavoro(t)).join('')
+        : '<div class="scheda text-center py-6"><div class="text-3xl">👍</div><p class="mt-1 font-black">Nessuna scadenza da recuperare</p></div>'}</div></section>`;
+
+  if (inCorso.length) h += `<section><h2 class="titolo-sez">🔄 In corso <span class="conta">${inCorso.length}</span></h2>
+      <div class="space-y-3">${inCorso.map((t) => schedaLavoro(t)).join('')}</div></section>`;
+
+  // attività del giorno scelto sul calendario (se diverso da oggi)
+  if (calSel !== OGGI) {
+    const { aperte, fatte: f2 } = delGiorno(calSel);
+    h += `<section><h2 class="titolo-sez">📅 ${pul(dataLunga(calSel))} <span class="conta">${aperte.length}</span></h2>
+        <div class="space-y-3">${aperte.length ? aperte.map((t) => schedaLavoro(t)).join('')
+          : '<div class="scheda text-center py-6"><p class="font-black">Niente in programma</p></div>'}
+        ${f2.length ? f2.map((t) => schedaLavoro(t, false)).join('') : ''}</div>
+        <button class="bot bot-chiaro w-full mt-3" data-azione="nuovo-nel-giorno">＋ Aggiungi in questo giorno</button></section>`;
+  }
+
+  h += `<section>
+      <h2 class="titolo-sez">☀️ Routine di oggi <span class="conta">${fatte}/${rt.length}</span></h2>
+      <div class="space-y-2.5">${rt.length ? rt.map(rigaRoutine).join('')
+        : '<p class="scheda text-center font-bold py-6">Nessuna routine. Aggiungila da ⚙️</p>'}</div>
+      <p class="text-xs font-semibold mt-2 px-1" style="color:var(--inchiostro2)">Cerchietto = fatto · tocca il nome per modificarla</p>
+    </section>`;
+
+  $('#corpo-oggi').innerHTML = h;
+}
+
+/* ==========================================================================
+   ANIMALI
+   ========================================================================== */
+function disegnaAnimali() {
+  let h = '';
+  if (!animali.length) {
+    h = `<div class="scheda text-center py-10"><div class="text-5xl">🐄</div>
+        <p class="mt-2 font-black text-lg">Nessun animale registrato</p>
+        <p class="mt-1 text-sm font-semibold" style="color:var(--inchiostro2)">
+          Col pulsante ＋ crei la carta d'identità: foto, razza, data di nascita, codice stalla e storico sanitario.</p></div>`;
+  } else {
+    const totale = animali.reduce((s, a) => s + spesaTotale(a), 0);
+    h = `<div class="scheda scheda-fitta flex items-center gap-2 flex-wrap">
+          <span class="etichetta">🐾 ${animali.length} ${animali.length === 1 ? 'animale' : 'animali'}</span>
+          <span class="etichetta et-soldi">💰 spesa totale ${pul(euro(totale) || '—')}</span>
+        </div>
+        <div class="griglia-animali">
+          ${animali.map((a) => `
+            <button type="button" class="scheda scheda-fitta tocca text-left" data-animale="${a.id}">
+              ${a.foto_url ? `<img src="${pul(a.foto_url)}" class="foto-animale" alt="${pul(a.nome)}" loading="lazy">`
+                           : `<div class="senza-foto">${EMOJI_SPECIE[a.specie] || '🐾'}</div>`}
+              <p class="font-black mt-2 leading-tight truncate">${pul(a.nome)}</p>
+              <p class="text-xs font-bold mt-0.5 truncate" style="color:var(--inchiostro2)">
+                ${pul(a.specie || '')}${a.razza ? ' · ' + pul(a.razza) : ''}</p>
+              <div class="flex flex-wrap gap-1 mt-1.5">
+                ${a.data_nascita ? `<span class="etichetta">🎂 ${pul(eta(a.data_nascita))}</span>` : ''}
+                ${a.codice_stalla ? `<span class="etichetta">🏷️ ${pul(a.codice_stalla)}</span>` : ''}
+              </div>
+            </button>`).join('')}
+        </div>`;
+  }
+  $('#corpo-animali').innerHTML = h;
+}
+
+function apriAnimale(id) {
+  const a = animali.find((x) => x.id === id); if (!a) return;
+  modo = 'animale'; animaleAperto = id; idAperto = id;
+  $('#pannello-titolo').textContent = a.nome;
+  const iv = interventiDi(id);
+  $('#pannello-corpo').innerHTML = `
+    ${a.foto_url ? `<img src="${pul(a.foto_url)}" class="miniatura" alt="${pul(a.nome)}" data-lente="${pul(a.foto_url)}">`
+                 : `<div class="senza-foto" style="aspect-ratio:16/9">${EMOJI_SPECIE[a.specie] || '🐾'}</div>`}
+
+    <div class="scheda">
+      <h3 class="font-black mb-2">Carta d'identità</h3>
+      <dl class="text-sm font-semibold space-y-1.5">
+        ${[['Nome', a.nome], ['Specie', a.specie], ['Razza', a.razza],
+           ['Data di nascita', a.data_nascita ? `${a.data_nascita.split('-').reverse().join('/')} (${eta(a.data_nascita)})` : null],
+           ['Codice stalla', a.codice_stalla], ['Costo d\'acquisto', euro(a.costo_acquisto)]]
+          .filter(([, v]) => v).map(([k, v]) => `<div class="flex gap-2">
+             <dt style="color:var(--inchiostro2)" class="w-36 shrink-0">${k}</dt><dd class="font-bold">${pul(v)}</dd></div>`).join('')}
+      </dl>
+      ${a.note ? `<p class="mt-2 text-sm font-semibold" style="color:var(--inchiostro2)">${pul(a.note)}</p>` : ''}
+      <div class="flex flex-wrap gap-2 mt-3">
+        <span class="etichetta et-soldi">💰 Spesa totale ${pul(euro(spesaTotale(a)) || '—')}</span>
+        <span class="etichetta">🩺 ${iv.length} ${iv.length === 1 ? 'intervento' : 'interventi'}</span>
       </div>
+      <p class="text-xs font-semibold mt-2" style="color:var(--inchiostro2)">
+        Spesa totale = costo d'acquisto + tutti gli interventi registrati.</p>
     </div>
 
+    <button class="bot bot-verde bot-largo" data-azione="nuovo-intervento">➕ Aggiungi intervento</button>
+
     <section>
-      <h2 class="h-sec">${esc(dateLungo(calSel))}</h2>
-      ${aperte.length ? `<div class="space-y-3">${aperte.map((t) => cardLavoro(t)).join('')}</div>`
-        : `<div class="card text-center py-6">
-             <p class="font-black">Niente in programma</p>
-             <button class="btn btn-primary btn-wide mt-3" data-act="new-per-giorno">＋ Aggiungi attività per questo giorno</button>
-           </div>`}
-      ${aperte.length ? `<button class="btn btn-ghost w-full mt-3" data-act="new-per-giorno">＋ Aggiungi in questo giorno</button>` : ''}
+      <h3 class="titolo-sez">🩺 Storico interventi e sanità <span class="conta">${iv.length}</span></h3>
+      <div class="space-y-3">
+        ${iv.length ? iv.map((x) => `
+          <article class="scheda tocca" data-intervento="${x.id}" role="button" tabindex="0">
+            <div class="flex items-start gap-2">
+              <h4 class="flex-1 font-black leading-tight">${pul(x.tipo_evento)}</h4>
+              <span class="etichetta shrink-0">${pul(x.data_evento ? x.data_evento.split('-').reverse().join('/') : '')}</span>
+            </div>
+            ${x.descrizione ? `<p class="mt-1.5 text-sm font-semibold" style="color:var(--inchiostro2)">${pul(x.descrizione)}</p>` : ''}
+            <div class="flex flex-wrap gap-1.5 mt-2">
+              ${x.nome_veterinario ? `<span class="etichetta">🧑‍⚕️ ${pul(x.nome_veterinario)}</span>` : ''}
+              ${x.costo ? `<span class="etichetta et-soldi">💰 ${pul(euro(x.costo))}</span>` : ''}
+            </div>
+            ${tagFoto(x.foto_ricevuta_url)}
+          </article>`).join('')
+        : '<p class="scheda text-center font-bold py-6">Nessun intervento registrato</p>'}
+      </div>
     </section>
 
-    ${(fatte.length || rtFatte.length) ? `<section>
-      <h2 class="h-sec">✅ Fatto in questo giorno <span class="h-count">${fatte.length + rtFatte.length}</span></h2>
-      <div class="space-y-3">
-        ${fatte.map((t) => cardLavoro(t, false)).join('')}
-        ${rtFatte.map((t) => `<article class="card card-done">
-            <div class="flex items-start gap-2">
-              <h3 class="flex-1 font-bold">${esc(t.title)}</h3>
-              <span class="badge">🔁 Routine</span>
-            </div></article>`).join('')}
-      </div></section>` : ''}`;
+    <button class="bot bot-chiaro bot-largo" data-azione="modifica-animale">✏️ Modifica dati animale</button>
+    <button class="bot bot-rosso bot-largo" data-azione="elimina-animale">🗑 Elimina animale</button>`;
+  apriPannello();
 }
 
 /* ==========================================================================
-   SEZIONE: LAVORI
+   LAVORI
    ========================================================================== */
-function renderLavori() {
-  const v = lavori().filter(isMine);
-  const daFare  = v.filter((t) => t.status === 'Da fare').sort(byUrgency);
-  const inCorso = v.filter((t) => t.status === 'In corso').sort(byUrgency);
-  const senzaData = daFare.filter((t) => !t.due_date);
-  const conData   = daFare.filter((t) => t.due_date);
+function disegnaLavori() {
+  const v = iLavori().filter(eMio);
+  const daFare = v.filter((t) => t.stato === 'Da fare').sort(perUrgenza);
+  const corso  = v.filter((t) => t.stato === 'In corso').sort(perUrgenza);
+  const conData = daFare.filter((t) => t.scadenza);
+  const senza   = daFare.filter((t) => !t.scadenza);
 
   let h = `<div class="flex gap-2">
-      <button class="chip flex-1" data-mine="tutti" aria-pressed="${mine === 'tutti'}">Tutti i lavori</button>
-      <button class="chip flex-1" data-mine="miei"  aria-pressed="${mine === 'miei'}">Solo i miei</button>
+      <button class="past flex-1" data-miei="tutti" aria-pressed="${filtroMiei === 'tutti'}">Tutti i lavori</button>
+      <button class="past flex-1" data-miei="miei"  aria-pressed="${filtroMiei === 'miei'}">Solo i miei</button>
     </div>`;
-  if (inCorso.length) h += `<section><h2 class="h-sec">🔄 In corso <span class="h-count">${inCorso.length}</span></h2>
-      <div class="space-y-3">${inCorso.map((t) => cardLavoro(t)).join('')}</div></section>`;
-  h += `<section><h2 class="h-sec">🔨 Con scadenza <span class="h-count">${conData.length}</span></h2>
-      <div class="space-y-3">${conData.length ? conData.map((t) => cardLavoro(t)).join('')
-        : '<p class="card text-center font-bold py-6">Nessun lavoro in scadenza 🎉</p>'}</div></section>`;
-  if (senzaData.length) h += `<section><h2 class="h-sec">📥 Senza data <span class="h-count">${senzaData.length}</span></h2>
-      <div class="space-y-3">${senzaData.map((t) => cardLavoro(t)).join('')}</div></section>`;
-  $('#lavori-body').innerHTML = h;
+  if (corso.length) h += `<section><h2 class="titolo-sez">🔄 In corso <span class="conta">${corso.length}</span></h2>
+      <div class="space-y-3">${corso.map((t) => schedaLavoro(t)).join('')}</div></section>`;
+  h += `<section><h2 class="titolo-sez">🔨 Con scadenza <span class="conta">${conData.length}</span></h2>
+      <div class="space-y-3">${conData.length ? conData.map((t) => schedaLavoro(t)).join('')
+        : '<p class="scheda text-center font-bold py-6">Nessun lavoro in scadenza 🎉</p>'}</div></section>`;
+  if (senza.length) h += `<section><h2 class="titolo-sez">📥 Senza data <span class="conta">${senza.length}</span></h2>
+      <div class="space-y-3">${senza.map((t) => schedaLavoro(t)).join('')}</div></section>`;
+  $('#corpo-lavori').innerHTML = h;
 }
 
 /* ==========================================================================
-   SEZIONE: REGISTRO
+   REGISTRO (con filtri) + CONTATTI
    ========================================================================== */
-function renderRegistro() {
-  const n = note();
-  $('#registro-body').innerHTML = n.length ? n.map((t) => `
-      <article class="card card-tap" data-open="${t.id}" role="button" tabindex="0">
+function disegnaRegistro() {
+  const tutte = leNote();
+  const n = filtroReg === 'Tutti' ? tutte : tutte.filter((t) => (t.categoria || 'Altro') === filtroReg);
+  let h = `<div class="flex gap-2">
+      ${['Tutti', 'Animali', 'Macchine'].map((f) => `<button class="past flex-1" data-filtro-reg="${f}" aria-pressed="${filtroReg === f}">${f}</button>`).join('')}
+    </div>
+    <button class="bot bot-chiaro w-full" data-azione="apri-contatti">📞 Contatti utili (${contatti.length})</button>`;
+  h += n.length ? n.map((t) => `
+      <article class="scheda tocca" data-apri="${t.id}" role="button" tabindex="0">
         <div class="flex items-start gap-2">
-          <h3 class="flex-1 font-black text-base leading-tight">${esc(t.title)}</h3>
-          <span class="badge">${stampLabel(t.created_at)}</span>
+          <h3 class="flex-1 font-black text-base leading-tight">${pul(t.titolo)}</h3>
+          <span class="etichetta shrink-0">${pul(oraLunga(t.creato_il))}</span>
         </div>
-        ${t.notes ? `<p class="mt-2 text-sm font-semibold" style="color:var(--ink-2)">${esc(t.notes)}</p>` : ''}
-        ${photoTag(t)}
+        <div class="flex flex-wrap gap-1.5 mt-2">
+          ${t.categoria ? `<span class="etichetta">${emojiCat(t.categoria)} ${pul(t.categoria)}</span>` : ''}
+        </div>
+        ${t.note ? `<p class="mt-2 text-sm font-semibold" style="color:var(--inchiostro2)">${pul(t.note)}</p>` : ''}
+        ${tagFoto(t.foto_url)}
       </article>`).join('')
-    : `<p class="card text-center font-bold py-8">Nessuna nota.<br>
+    : `<p class="scheda text-center font-bold py-8">Nessuna nota${filtroReg !== 'Tutti' ? ' in "' + filtroReg + '"' : ''}.<br>
         <span class="font-semibold text-sm">Col pulsante ＋ annoti animali e attrezzature, anche con foto.</span></p>`;
+  $('#corpo-registro').innerHTML = h;
+}
+
+function apriContatti() {
+  modo = 'contatti';
+  $('#pannello-titolo').textContent = 'Contatti utili';
+  $('#pannello-corpo').innerHTML = `
+    ${contatti.length ? contatti.map((c) => {
+      const num = String(c.telefono || '').replace(/[^\d+]/g, '');
+      return `<div class="scheda">
+        <div class="flex items-start gap-2">
+          <div class="flex-1 min-w-0">
+            <p class="font-black truncate">${pul(c.nome)}</p>
+            <p class="text-sm font-bold" style="color:var(--inchiostro2)">${pul(c.ruolo || '')}</p>
+            ${c.telefono ? `<p class="text-sm font-bold mt-0.5">${pul(c.telefono)}</p>` : '<p class="text-sm font-semibold mt-0.5" style="color:var(--allarme)">numero mancante</p>'}
+            ${c.note ? `<p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">${pul(c.note)}</p>` : ''}
+          </div>
+          <button class="bot bot-rosso bot-piccolo shrink-0" data-azione="elimina-contatto" data-id="${c.id}">🗑</button>
+        </div>
+        ${num ? `<div class="flex gap-2 mt-3">
+            <a class="bot bot-verde flex-1" href="tel:${pul(num)}">📞 Chiama</a>
+            <a class="bot bot-chiaro flex-1" href="https://wa.me/${pul(num.replace(/^\+/, ''))}" target="_blank" rel="noopener">💬 WhatsApp</a>
+          </div>` : ''}
+      </div>`;
+    }).join('') : '<p class="scheda text-center font-bold py-6">Nessun contatto</p>'}
+    <button class="bot bot-verde bot-largo" data-azione="nuovo-contatto">＋ Nuovo contatto</button>`;
+  apriPannello();
 }
 
 /* ==========================================================================
-   SEZIONE: SPESA
+   SPESA
    ========================================================================== */
-function renderSpesa() {
-  const s = spesa();
-  const da = s.filter((t) => t.status !== 'Completato');
-  const presi = s.filter((t) => t.status === 'Completato');
+function disegnaSpesa() {
+  const s = laSpesa();
+  const da = s.filter((t) => t.stato !== 'Completato');
+  const presi = s.filter((t) => t.stato === 'Completato')
+    .sort((a, b) => String(b.completato_il).localeCompare(String(a.completato_il)));
   const riga = (t) => `
-    <div class="rt ${t.status === 'Completato' ? 'rt-on' : ''}">
-      <button type="button" class="rt-box" data-act="spesa" data-id="${t.id}" aria-label="Preso">✓</button>
-      <span class="rt-title flex-1">${esc(t.title)}</span>
-      <button type="button" class="text-xl px-2" data-act="del" data-id="${t.id}" aria-label="Elimina">🗑</button>
+    <div class="riga ${t.stato === 'Completato' ? 'riga-ok' : ''}">
+      <button type="button" class="cerchio" data-azione="spesa" data-id="${t.id}" aria-label="Preso">✓</button>
+      <span class="riga-tit flex-1 min-w-0">${pul(t.titolo)}</span>
+      <button type="button" class="text-xl px-2 shrink-0" data-azione="elimina" data-id="${t.id}" aria-label="Elimina">🗑</button>
     </div>`;
-  let h = `<section><h2 class="h-sec">🛒 Da comprare <span class="h-count">${da.length}</span></h2>
+  let h = `<section><h2 class="titolo-sez">🛒 Da comprare <span class="conta">${da.length}</span></h2>
       <div class="space-y-2.5">${da.length ? da.map(riga).join('')
-        : '<p class="card text-center font-bold py-6">Lista vuota</p>'}</div></section>`;
-  if (presi.length) h += `<section><h2 class="h-sec">✅ Presi <span class="h-count">${presi.length}</span></h2>
+        : '<p class="scheda text-center font-bold py-6">Lista vuota</p>'}</div></section>`;
+  if (presi.length) h += `<section><h2 class="titolo-sez">✅ Comprati di recente <span class="conta">${presi.length}</span></h2>
       <div class="space-y-2.5">${presi.map(riga).join('')}</div>
-      <button class="btn btn-ghost w-full mt-3" data-act="svuota-spesa">🧹 Togli dalla lista i ${presi.length} presi</button></section>`;
-  $('#spesa-body').innerHTML = h;
+      <p class="text-xs font-semibold mt-2 px-1" style="color:var(--inchiostro2)">
+        Restano qui finché non li togli: tocca il cerchietto per rimetterli in lista.</p>
+      <button class="bot bot-chiaro w-full mt-2" data-azione="svuota-comprati">🧹 Togli dalla lista i ${presi.length} comprati</button></section>`;
+  $('#corpo-spesa').innerHTML = h;
 }
 
 /* ==========================================================================
-   SEZIONE: STORICO
+   STORICO
    ========================================================================== */
-function renderStorico() {
-  const fatti = tasks
-    .filter((t) => (t.kind === 'Lavoro' && t.status === 'Completato') || (t.kind === 'Routine' && t.last_done_date))
-    .map((t) => ({ t, quando: t.kind === 'Routine' ? (t.completed_at || t.last_done_date + 'T12:00:00') : (t.completed_at || t.created_at) }))
+function disegnaStorico() {
+  const fatti = attivita
+    .filter((t) => (t.tipo === 'Lavoro' && t.stato === 'Completato') || (t.tipo === 'Routine' && t.ultimo_completamento))
+    .map((t) => ({ t, quando: t.tipo === 'Routine' ? (t.completato_il || t.ultimo_completamento + 'T12:00:00') : (t.completato_il || t.creato_il) }))
     .sort((a, b) => String(b.quando).localeCompare(String(a.quando)));
 
-  let h = `<button class="btn btn-ghost w-full" data-view="calendario">‹ Torna al calendario</button>`;
-  if (!fatti.length) {
-    h += '<p class="card text-center font-bold py-10">Ancora nessun lavoro completato.</p>';
-  } else {
-    const gruppi = {};
-    fatti.forEach((x) => { const g = String(x.quando).slice(0, 10); (gruppi[g] = gruppi[g] || []).push(x); });
-    h += Object.keys(gruppi).sort().reverse().map((g) => `
-      <section><h2 class="h-sec">📅 ${esc(dateLabel(g) || g)} <span class="h-count">${gruppi[g].length}</span></h2>
-        <div class="space-y-3">${gruppi[g].map(({ t, quando }) => `
-          <article class="card card-done ${t.kind === 'Lavoro' ? 'card-tap' : ''}" ${t.kind === 'Lavoro' ? `data-open="${t.id}" role="button" tabindex="0"` : ''}>
+  let h = '<button class="bot bot-chiaro w-full" data-vista="oggi">‹ Torna alla Home</button>';
+  if (!fatti.length) h += '<p class="scheda text-center font-bold py-10">Ancora nessun lavoro completato.</p>';
+  else {
+    const gr = {};
+    fatti.forEach((x) => { const g = String(x.quando).slice(0, 10); (gr[g] = gr[g] || []).push(x); });
+    h += Object.keys(gr).sort().reverse().map((g) => `
+      <section><h2 class="titolo-sez">📅 ${pul(etichettaData(g) || g)} <span class="conta">${gr[g].length}</span></h2>
+        <div class="space-y-3">${gr[g].map(({ t, quando }) => `
+          <article class="scheda scheda-fatta ${t.tipo === 'Lavoro' ? 'tocca' : ''}" ${t.tipo === 'Lavoro' ? `data-apri="${t.id}" role="button" tabindex="0"` : ''}>
             <div class="flex items-start gap-2">
-              <h3 class="flex-1 font-bold text-base leading-tight">${esc(t.title)}</h3>
-              <span class="badge">${esc(stampLabel(quando))}</span>
+              <h3 class="flex-1 font-bold leading-tight">${pul(t.titolo)}</h3>
+              <span class="etichetta shrink-0">${pul(oraLunga(quando))}</span>
             </div>
             <div class="flex flex-wrap gap-1.5 mt-2">
-              ${t.kind === 'Routine' ? '<span class="badge">🔁 Routine</span>' : ''}${badgesOf(t)}
+              ${t.tipo === 'Routine' ? '<span class="etichetta">🔁 Routine</span>' : ''}${etichetteDi(t)}
             </div>
-            ${t.notes ? `<p class="mt-2 text-sm font-semibold" style="color:var(--ink-2)">${esc(t.notes)}</p>` : ''}
-            ${photoTag(t)}
+            ${t.note ? `<p class="mt-2 text-sm font-semibold" style="color:var(--inchiostro2)">${pul(t.note)}</p>` : ''}
+            ${tagFoto(t.foto_url)}
           </article>`).join('')}</div></section>`).join('');
   }
-  $('#storico-body').innerHTML = h;
+  $('#corpo-storico').innerHTML = h;
 }
 
 /* ==========================================================================
-   RENDER
+   DISEGNO GENERALE
    ========================================================================== */
-const VIEWS = ['oggi', 'calendario', 'lavori', 'registro', 'spesa', 'storico'];
-const FAB_LABEL = { oggi: 'Attività', calendario: 'Attività', lavori: 'Attività', registro: 'Nota', spesa: 'Spesa', storico: 'Attività' };
+const VISTE = ['oggi', 'animali', 'lavori', 'registro', 'spesa', 'storico'];
+const ETICHETTA_BOT = { oggi: 'Attività', animali: 'Animale', lavori: 'Attività', registro: 'Nota', spesa: 'Spesa', storico: 'Attività' };
 
-function render() {
-  if (loadFailed) return;
-  VIEWS.forEach((v) => { $('#view-' + v).hidden = (v !== view); });
-  $$('#nav .tab').forEach((b) => {
-    if (b.dataset.view === view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+function disegna() {
+  if (caricoRotto) return;
+  VISTE.forEach((v) => { $('#vista-' + v).hidden = (v !== vista); });
+  $$('#barra .voce').forEach((b) => {
+    if (b.dataset.vista === vista) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
-  $('#btn-me').textContent = me === 'Anna' ? 'A' : 'I';
-  $('#fab-label').textContent = FAB_LABEL[view] || 'Attività';
+  $('#bot-io').textContent = io === 'Anna' ? 'A' : 'I';
+  $('#etichetta-aggiungi').textContent = ETICHETTA_BOT[vista] || 'Attività';
+  aggiornaPallino();
 
-  if (view === 'oggi')       renderOggi();
-  if (view === 'calendario') renderCalendario();
-  if (view === 'lavori')     renderLavori();
-  if (view === 'registro')   renderRegistro();
-  if (view === 'spesa')      renderSpesa();
-  if (view === 'storico')    renderStorico();
+  if (vista === 'oggi')     disegnaOggi();
+  if (vista === 'animali')  disegnaAnimali();
+  if (vista === 'lavori')   disegnaLavori();
+  if (vista === 'registro') disegnaRegistro();
+  if (vista === 'spesa')    disegnaSpesa();
+  if (vista === 'storico')  disegnaStorico();
 }
 
-function showLoadError(e) {
-  const off = !navigator.onLine;
-  $('#oggi-body').innerHTML = `
-    <div class="card card-hot text-center">
-      <div class="text-5xl">${off ? '📵' : '⚠️'}</div>
-      <p class="mt-2 font-black text-lg" style="color:var(--danger)">${off ? 'Nessuna connessione' : 'Dati non caricati'}</p>
-      <p class="mt-1 text-sm font-bold">${off ? 'I lavori sono al sicuro nel database e ricompariranno appena torni in linea.'
-                                              : 'Non riesco a leggere l\'elenco dal database.'}</p>
-      <p class="mt-2 text-xs font-mono break-words" style="color:var(--danger)">${esc((e && e.message) || e)}</p>
-      <button class="btn btn-primary btn-wide mt-3" data-act="retry">🔄 Riprova</button>
+function mostraErrore(e) {
+  const senzaRete = !navigator.onLine;
+  const m = (e && e.message) || String(e);
+  const vecchiNomi = /attivita|does not exist|schema cache/i.test(m);
+  $('#corpo-oggi').innerHTML = `
+    <div class="scheda scheda-urgente text-center">
+      <div class="text-5xl">${senzaRete ? '📵' : '⚠️'}</div>
+      <p class="mt-2 font-black text-lg" style="color:var(--allarme)">${senzaRete ? 'Nessuna connessione' : 'Dati non caricati'}</p>
+      <p class="mt-1 text-sm font-bold">${senzaRete
+        ? 'I dati sono al sicuro nel database e ricompariranno appena torni in linea.'
+        : vecchiNomi ? 'Sembra che il database non abbia ancora la struttura nuova: esegui <b>schema-v4.sql</b> nell\'SQL Editor di Supabase.'
+                     : 'Non riesco a leggere i dati dal database.'}</p>
+      <p class="mt-2 text-xs font-mono break-words" style="color:var(--allarme)">${pul(m)}</p>
+      <button class="bot bot-verde bot-largo mt-3" data-azione="riprova">🔄 Riprova</button>
     </div>`;
-  VIEWS.forEach((v) => { $('#view-' + v).hidden = (v !== 'oggi'); });
+  VISTE.forEach((v) => { $('#vista-' + v).hidden = (v !== 'oggi'); });
 }
 
 /* ==========================================================================
-   AZIONI
+   OPERAZIONI
    ========================================================================== */
-function upsertLocal(row) {
-  const i = tasks.findIndex((t) => t.id === row.id);
-  if (i < 0) tasks.push(row); else tasks[i] = { ...tasks[i], ...row };
+function metti(coll, riga) {
+  const arr = elenco[coll]();
+  const i = arr.findIndex((x) => x.id === riga.id);
+  if (i < 0) arr.push(riga); else arr[i] = { ...arr[i], ...riga };
 }
 
-async function patch(id, p, msg) {
-  const i = tasks.findIndex((t) => t.id === id);
+async function cambia(coll, id, cambi, messaggio) {
+  const arr = elenco[coll]();
+  const i = arr.findIndex((x) => x.id === id);
   if (i < 0) return;
-  const before = tasks[i];
-  tasks[i] = { ...before, ...p };
-  render();
+  const prima = arr[i];
+  arr[i] = { ...prima, ...cambi };
+  disegna();
   try {
-    await store.update(id, p);
+    await archivio.modifica(coll, id, cambi);
     if (navigator.vibrate) navigator.vibrate(14);
-    if (msg) toast(msg);
-  } catch (e) { tasks[i] = before; render(); toast('Non salvato: ' + (e.message || e), true); }
+    if (messaggio) avvisa(messaggio);
+  } catch (e) { arr[i] = prima; disegna(); avvisa('Non salvato: ' + (e.message || e), true); }
 }
 
-const toggleRoutine = (id) => {
-  const t = tasks.find((x) => x.id === id); if (!t) return;
-  const on = routineDone(t);
-  patch(id, on ? { last_done_date: null, completed_at: null }
-               : { last_done_date: TODAY, completed_at: new Date().toISOString() },
-        on ? 'Rimesso da fare' : '✓ Fatto');
+const spuntaRoutine = (id) => {
+  const t = attivita.find((x) => x.id === id); if (!t) return;
+  const su = routineFatta(t);
+  cambia('attivita', id, su ? { ultimo_completamento: null, completato_il: null }
+                            : { ultimo_completamento: OGGI, completato_il: new Date().toISOString() },
+         su ? 'Rimesso da fare' : '✓ Fatto');
 };
-const toggleSpesa = (id) => {
-  const t = tasks.find((x) => x.id === id); if (!t) return;
-  const done = t.status === 'Completato';
-  patch(id, done ? { status: 'Da fare', completed_at: null }
-                 : { status: 'Completato', completed_at: new Date().toISOString() });
+const spuntaSpesa = (id) => {
+  const t = attivita.find((x) => x.id === id); if (!t) return;
+  const fatto = t.stato === 'Completato';
+  cambia('attivita', id, fatto ? { stato: 'Da fare', completato_il: null }
+                               : { stato: 'Completato', completato_il: new Date().toISOString() },
+         fatto ? 'Rimesso in lista' : '✓ Comprato');
 };
-async function svuotaSpesa() {
-  for (const t of spesa().filter((x) => x.status === 'Completato')) {
-    try { await store.remove(t.id); tasks = tasks.filter((x) => x.id !== t.id); }
-    catch (e) { toast('Errore: ' + e.message, true); }
+async function svuotaComprati() {
+  for (const t of laSpesa().filter((x) => x.stato === 'Completato')) {
+    try { await archivio.elimina('attivita', t.id); attivita = attivita.filter((x) => x.id !== t.id); }
+    catch (e) { avvisa('Errore: ' + e.message, true); }
   }
-  render(); toast('Lista ripulita');
+  disegna(); avvisa('Lista ripulita');
 }
-async function removeTask(id) {
-  try { await store.remove(id); tasks = tasks.filter((t) => t.id !== id); render(); toast('Eliminato'); }
-  catch (e) { toast('Non eliminato: ' + (e.message || e), true); }
+async function elimina(coll, id) {
+  try {
+    await archivio.elimina(coll, id);
+    if (coll === 'attivita') attivita = attivita.filter((x) => x.id !== id);
+    if (coll === 'animali') { animali = animali.filter((x) => x.id !== id); interventi = interventi.filter((x) => x.animale_id !== id); }
+    if (coll === 'interventi') interventi = interventi.filter((x) => x.id !== id);
+    if (coll === 'contatti') contatti = contatti.filter((x) => x.id !== id);
+    disegna(); avvisa('Eliminato');
+  } catch (e) { avvisa('Non eliminato: ' + (e.message || e), true); }
 }
 
 /* ==========================================================================
-   SHEET: un solo form per creare e per modificare
+   MODULI (un solo pannello per creare e modificare tutto)
    ========================================================================== */
-function openNew(kind, dueDate) {
-  sheetMode = 'new'; sheetId = null; sheetKind = kind;
-  photo.sheet = null;
-  form = {
-    title: '', category: 'Animali', estimated_time: '30m', assigned_to: me,
-    priority: 'Media', status: 'Da fare', due_date: dueDate || '', notes: '', extra: false
+function apriNuovo(tipo, scadenza) {
+  modo = 'nuovo'; idAperto = null; tipoAperto = tipo; fotoScelta.dati = null;
+  mod = { titolo: '', categoria: tipo === 'Nota' ? 'Animali' : 'Animali', tempo_stimato: '30m',
+          assegnato_a: io, priorita: 'Media', stato: 'Da fare', scadenza: scadenza || '', note: '',
+          specie: 'Bovino', razza: '', data_nascita: '', codice_stalla: '', costo_acquisto: '',
+          tipo_evento: 'Visita veterinaria', data_evento: OGGI, descrizione: '', nome_veterinario: '', costo: '',
+          ruolo: 'Veterinario', telefono: '', extra: false };
+  disegnaPannello(); apriPannello();
+}
+
+function apriModifica(id) {
+  const t = attivita.find((x) => x.id === id); if (!t) return;
+  modo = 'modifica'; idAperto = id; tipoAperto = t.tipo || 'Lavoro'; fotoScelta.dati = null;
+  mod = { titolo: t.titolo || '', categoria: t.categoria || 'Altro', tempo_stimato: t.tempo_stimato || '30m',
+          assegnato_a: t.assegnato_a || 'Io', priorita: t.priorita || 'Media', stato: t.stato || 'Da fare',
+          scadenza: t.scadenza || '', note: t.note || '', foto_url: t.foto_url || null, extra: true };
+  disegnaPannello(); apriPannello();
+}
+
+function apriModificaAnimale(id) {
+  const a = animali.find((x) => x.id === id); if (!a) return;
+  modo = 'animale-modifica'; idAperto = id; tipoAperto = 'Animale'; fotoScelta.dati = null;
+  mod = { titolo: a.nome || '', specie: a.specie || 'Bovino', razza: a.razza || '',
+          data_nascita: a.data_nascita || '', codice_stalla: a.codice_stalla || '',
+          costo_acquisto: a.costo_acquisto ?? '', note: a.note || '', foto_url: a.foto_url || null };
+  disegnaPannello(); apriPannello();
+}
+
+function apriIntervento(id) {
+  const x = interventi.find((y) => y.id === id); if (!x) return;
+  modo = 'intervento-modifica'; idAperto = id; tipoAperto = 'Intervento';
+  animaleAperto = x.animale_id; fotoScelta.dati = null;
+  mod = { tipo_evento: x.tipo_evento || 'Altro', data_evento: x.data_evento || OGGI,
+          descrizione: x.descrizione || '', nome_veterinario: x.nome_veterinario || '',
+          costo: x.costo ?? '', foto_url: x.foto_ricevuta_url || null };
+  disegnaPannello(); apriPannello();
+}
+
+function apriPannello() { $('#pannello').hidden = false; document.body.style.overflow = 'hidden'; }
+function chiudiPannello() {
+  $('#pannello').hidden = true; document.body.style.overflow = '';
+  modo = null; idAperto = null; fotoScelta.dati = null;
+}
+
+function leggiCampi() {
+  const g = (id) => { const e = $(id); return e ? e.value : undefined; };
+  const v = {
+    titolo: g('#m-titolo'), note: g('#m-note'), scadenza: g('#m-scadenza'),
+    razza: g('#m-razza'), data_nascita: g('#m-nascita'), codice_stalla: g('#m-codice'),
+    costo_acquisto: g('#m-costo-acquisto'), descrizione: g('#m-descrizione'),
+    nome_veterinario: g('#m-veterinario'), costo: g('#m-costo'), data_evento: g('#m-data-evento'),
+    telefono: g('#m-telefono')
   };
-  buildSheet(); apriSheet();
+  Object.keys(v).forEach((k) => { if (v[k] !== undefined) mod[k] = v[k]; });
 }
 
-function openEdit(id) {
-  const t = tasks.find((x) => x.id === id); if (!t) return;
-  sheetMode = 'edit'; sheetId = id; sheetKind = t.kind || 'Lavoro';
-  photo.sheet = null;
-  form = {
-    title: t.title || '', category: t.category || 'Altro', estimated_time: t.estimated_time || '30m',
-    assigned_to: t.assigned_to || 'Io', priority: t.priority || 'Media', status: t.status || 'Da fare',
-    due_date: t.due_date || '', notes: t.notes || '', photo_url: t.photo_url || null, extra: true
-  };
-  buildSheet(); apriSheet();
-}
+function disegnaPannello() {
+  if (modo === 'impostazioni') return disegnaImpostazioni();
+  if (modo === 'contatti')     return apriContatti();
+  const nuovo = modo === 'nuovo';
+  const k = tipoAperto;
+  const foto = fotoScelta.dati ? fotoScelta.dati.dataUrl : mod.foto_url;
+  const bloccoFoto = (etichettaCampo) => `
+    <div><span class="didascalia">${etichettaCampo}</span>
+      ${foto ? `<img src="${pul(foto)}" class="miniatura mt-1.5" alt="Foto" data-lente="${pul(foto)}">` : ''}
+      <div class="flex gap-2 mt-2">
+        <button type="button" class="bot bot-chiaro flex-1" data-azione="prendi-foto">📷 ${foto ? 'Cambia' : 'Scatta o scegli'} foto</button>
+        ${foto ? '<button type="button" class="bot bot-rosso" data-azione="togli-foto">🗑</button>' : ''}
+      </div></div>`;
 
-function apriSheet() { $('#sheet').hidden = false; document.body.style.overflow = 'hidden'; }
-function closeSheet() {
-  $('#sheet').hidden = true; document.body.style.overflow = '';
-  sheetMode = null; sheetId = null; photo.sheet = null;
-}
-
-function buildSheet() {
-  if (sheetMode === 'settings') return buildSettings();
-  const nuovo = sheetMode === 'new';
-  const k = sheetKind;
-  const isLav = k === 'Lavoro', isRot = k === 'Routine', isNota = k === 'Nota', isSpesa = k === 'Spesa';
-
-  $('#sheet-title').textContent = nuovo
-    ? (isNota ? 'Nuova nota' : isSpesa ? 'Aggiungi alla spesa' : isRot ? 'Nuova routine' : 'Nuova attività')
-    : (isNota ? 'Nota' : isSpesa ? 'Articolo' : isRot ? 'Routine giornaliera' : 'Attività');
-
-  const foto = photo.sheet ? photo.sheet.dataUrl : form.photo_url;
-
-  let h = `<div>
-      <label class="lbl" for="f-title">${isNota ? 'Cosa annoti' : isSpesa ? 'Cosa serve' : 'Cosa c\'è da fare'}</label>
-      <input id="f-title" class="field mt-1.5" maxlength="140" autocomplete="off"
-             value="${esc(form.title)}" placeholder="${isNota ? 'Es. Vacca 12 — zoppia zampa dx' : isSpesa ? 'Es. Mangime 25 kg' : isRot ? 'Es. Cibo animali' : 'Es. Riparare recinto pascolo sud'}">
-    </div>`;
-
-  if (isSpesa) {
-    h += `<button class="btn btn-primary btn-wide" data-act="save">${nuovo ? '＋ Aggiungi alla lista' : '💾 Salva'}</button>`;
-    if (!nuovo) h += `<button class="btn btn-danger btn-wide" data-act="del-sheet">🗑 Elimina</button>`;
-    $('#sheet-body').innerHTML = h;
+  /* ---------- ANIMALE ---------- */
+  if (k === 'Animale') {
+    $('#pannello-titolo').textContent = nuovo ? 'Nuovo animale' : 'Modifica animale';
+    $('#pannello-corpo').innerHTML = `
+      <div><label class="didascalia" for="m-titolo">Nome</label>
+        <input id="m-titolo" class="campo mt-1.5" maxlength="80" value="${pul(mod.titolo)}" placeholder="Es. Bianca"></div>
+      <div><span class="didascalia">Specie</span>
+        <div class="flex flex-wrap gap-2 mt-1.5">${pastiglie(SPECIE.map((s) => ({ v: s, e: EMOJI_SPECIE[s] })), mod.specie, 'specie', '')}</div></div>
+      <div><label class="didascalia" for="m-razza">Razza</label>
+        <input id="m-razza" class="campo mt-1.5" maxlength="60" value="${pul(mod.razza)}" placeholder="Es. Bruna alpina"></div>
+      <div><label class="didascalia" for="m-nascita">Data di nascita</label>
+        <input id="m-nascita" type="date" class="campo mt-1.5" value="${pul(mod.data_nascita)}"></div>
+      <div><label class="didascalia" for="m-codice">Codice stalla / microchip</label>
+        <input id="m-codice" class="campo mt-1.5" maxlength="60" value="${pul(mod.codice_stalla)}" placeholder="Es. IT012345678"></div>
+      <div><label class="didascalia" for="m-costo-acquisto">Costo d'acquisto (€)</label>
+        <input id="m-costo-acquisto" type="number" inputmode="decimal" step="0.01" min="0" class="campo mt-1.5" value="${pul(mod.costo_acquisto)}" placeholder="0.00"></div>
+      <div><label class="didascalia" for="m-note">Note</label>
+        <textarea id="m-note" rows="3" class="campo mt-1.5" placeholder="Segni particolari, provenienza…">${pul(mod.note)}</textarea></div>
+      ${bloccoFoto('Foto dell\'animale')}
+      <button class="bot bot-verde bot-largo" data-azione="salva">${nuovo ? '＋ Aggiungi animale' : '💾 Salva'}</button>
+      ${!nuovo ? '<button class="bot bot-rosso bot-largo" data-azione="elimina-nel-pannello">🗑 Elimina animale</button>' : ''}`;
     return;
   }
 
-  if (isLav || isRot) {
-    h += `<div><span class="lbl">Cosa</span><div class="flex flex-wrap gap-2 mt-1.5">${chipRow(CATEGORIES, form.category, 'category', '')}</div></div>
-          <div><span class="lbl">Tempo</span><div class="flex gap-2 mt-1.5">${chipRow(TIMES, form.estimated_time, 'estimated_time')}</div></div>
-          <div><span class="lbl">Chi lo fa</span><div class="flex gap-2 mt-1.5">${chipRow(WHO, form.assigned_to, 'assigned_to')}</div></div>`;
+  /* ---------- INTERVENTO ---------- */
+  if (k === 'Intervento') {
+    const an = animali.find((x) => x.id === animaleAperto);
+    $('#pannello-titolo').textContent = (nuovo ? 'Nuovo intervento' : 'Intervento') + (an ? ' · ' + an.nome : '');
+    $('#pannello-corpo').innerHTML = `
+      <div><span class="didascalia">Tipo di intervento</span>
+        <div class="flex flex-wrap gap-2 mt-1.5">${pastiglie(TIPI_EVENTO, mod.tipo_evento, 'tipo_evento', '')}</div></div>
+      <div><label class="didascalia" for="m-data-evento">Data</label>
+        <input id="m-data-evento" type="date" class="campo mt-1.5" value="${pul(mod.data_evento)}"></div>
+      <div><label class="didascalia" for="m-descrizione">Descrizione</label>
+        <textarea id="m-descrizione" rows="2" class="campo mt-1.5" placeholder="Es. richiamo antitetanica">${pul(mod.descrizione)}</textarea></div>
+      <div><label class="didascalia" for="m-veterinario">Nome del veterinario</label>
+        <input id="m-veterinario" class="campo mt-1.5" maxlength="80" value="${pul(mod.nome_veterinario)}" placeholder="Es. dott. Rossi"></div>
+      <div><label class="didascalia" for="m-costo">Costo (€)</label>
+        <input id="m-costo" type="number" inputmode="decimal" step="0.01" min="0" class="campo mt-1.5" value="${pul(mod.costo)}" placeholder="0.00"></div>
+      ${bloccoFoto('Foto della ricevuta')}
+      <button class="bot bot-verde bot-largo" data-azione="salva">${nuovo ? '＋ Aggiungi intervento' : '💾 Salva'}</button>
+      ${!nuovo ? '<button class="bot bot-rosso bot-largo" data-azione="elimina-nel-pannello">🗑 Elimina intervento</button>' : ''}`;
+    return;
   }
 
-  if (isLav) {
-    if (nuovo && !form.extra) {
-      h += `<button type="button" class="btn btn-ghost btn-sm w-full" data-act="extra">＋ Altro (data, priorità, foto, note)</button>`;
+  /* ---------- CONTATTO ---------- */
+  if (k === 'Contatto') {
+    $('#pannello-titolo').textContent = 'Nuovo contatto';
+    $('#pannello-corpo').innerHTML = `
+      <div><label class="didascalia" for="m-titolo">Nome</label>
+        <input id="m-titolo" class="campo mt-1.5" maxlength="80" value="${pul(mod.titolo)}" placeholder="Es. dott. Rossi"></div>
+      <div><span class="didascalia">Ruolo</span>
+        <div class="flex flex-wrap gap-2 mt-1.5">${pastiglie(RUOLI, mod.ruolo, 'ruolo', '')}</div></div>
+      <div><label class="didascalia" for="m-telefono">Telefono</label>
+        <input id="m-telefono" type="tel" inputmode="tel" class="campo mt-1.5" value="${pul(mod.telefono)}" placeholder="+39 333 1234567"></div>
+      <div><label class="didascalia" for="m-note">Note</label>
+        <textarea id="m-note" rows="2" class="campo mt-1.5" placeholder="Orari, indirizzo…">${pul(mod.note)}</textarea></div>
+      <button class="bot bot-verde bot-largo" data-azione="salva">＋ Aggiungi contatto</button>`;
+    return;
+  }
+
+  /* ---------- ATTIVITÀ / ROUTINE / NOTA / SPESA ---------- */
+  const eLavoro = k === 'Lavoro', eRoutine = k === 'Routine', eNota = k === 'Nota', eSpesa = k === 'Spesa';
+  $('#pannello-titolo').textContent = nuovo
+    ? (eNota ? 'Nuova nota' : eSpesa ? 'Aggiungi alla spesa' : eRoutine ? 'Nuova routine' : 'Nuova attività')
+    : (eNota ? 'Nota' : eSpesa ? 'Articolo' : eRoutine ? 'Routine giornaliera' : 'Attività');
+
+  let h = `<div>
+      <label class="didascalia" for="m-titolo">${eNota ? 'Cosa annoti' : eSpesa ? 'Cosa serve' : 'Cosa c\'è da fare'}</label>
+      <input id="m-titolo" class="campo mt-1.5" maxlength="140" autocomplete="off" value="${pul(mod.titolo)}"
+             placeholder="${eNota ? 'Es. Vacca 12 — zoppia zampa dx' : eSpesa ? 'Es. Mangime 25 kg' : eRoutine ? 'Es. Cibo animali' : 'Es. Riparare recinto pascolo sud'}">
+    </div>`;
+
+  if (eSpesa) {
+    h += `<button class="bot bot-verde bot-largo" data-azione="salva">${nuovo ? '＋ Aggiungi alla lista' : '💾 Salva'}</button>`;
+    if (!nuovo) h += '<button class="bot bot-rosso bot-largo" data-azione="elimina-nel-pannello">🗑 Elimina</button>';
+    $('#pannello-corpo').innerHTML = h;
+    return;
+  }
+
+  if (eLavoro || eRoutine || eNota) {
+    h += `<div><span class="didascalia">${eNota ? 'Riguarda' : 'Cosa'}</span>
+            <div class="flex flex-wrap gap-2 mt-1.5">${pastiglie(CATEGORIE, mod.categoria, 'categoria', '')}</div></div>`;
+  }
+  if (eLavoro || eRoutine) {
+    h += `<div><span class="didascalia">Tempo</span><div class="flex gap-2 mt-1.5">${pastiglie(TEMPI, mod.tempo_stimato, 'tempo_stimato')}</div></div>
+          <div><span class="didascalia">Chi lo fa</span><div class="flex gap-2 mt-1.5">${pastiglie(PERSONE, mod.assegnato_a, 'assegnato_a')}</div></div>`;
+  }
+  if (eLavoro) {
+    if (nuovo && !mod.extra) {
+      h += '<button type="button" class="bot bot-chiaro bot-piccolo w-full" data-azione="extra">＋ Altro (data, priorità, foto, note)</button>';
     } else {
-      h += `<div><span class="lbl">Scadenza</span>
+      h += `<div><span class="didascalia">Scadenza</span>
               <div class="flex gap-2 mt-1.5 overflow-x-auto no-sb">
-                ${[['Oggi', TODAY], ['Domani', plusDays(1)], ['Fra 3 gg', plusDays(3)], ['Nessuna', '']]
-                  .map(([l, v]) => `<button type="button" class="chip flex-1" aria-pressed="${form.due_date === v}" data-set="due_date" data-value="${v}">${l}</button>`).join('')}
+                ${[['Oggi', OGGI], ['Domani', fraGiorni(1)], ['Fra 3 gg', fraGiorni(3)], ['Nessuna', '']]
+                  .map(([l, v]) => `<button type="button" class="past flex-1" aria-pressed="${mod.scadenza === v}" data-imposta="scadenza" data-valore="${v}">${l}</button>`).join('')}
               </div>
-              <input id="f-due" type="date" class="field mt-2" value="${esc(form.due_date)}">
-            </div>
-            <div><span class="lbl">Priorità</span><div class="flex gap-2 mt-1.5">${chipRow(PRIORITY, form.priority, 'priority')}</div></div>`;
-      if (!nuovo) h += `<div><span class="lbl">Stato</span><div class="flex gap-2 mt-1.5">${chipRow(STATI, form.status, 'status')}</div></div>`;
+              <input id="m-scadenza" type="date" class="campo mt-2" value="${pul(mod.scadenza)}"></div>
+            <div><span class="didascalia">Priorità</span><div class="flex gap-2 mt-1.5">${pastiglie(PRIORITA, mod.priorita, 'priorita')}</div></div>`;
+      if (!nuovo) h += `<div><span class="didascalia">Stato</span><div class="flex gap-2 mt-1.5">${pastiglie(STATI, mod.stato, 'stato')}</div></div>`;
     }
   }
-
-  if (isLav ? (form.extra || !nuovo) : true) {
-    h += `<div><label class="lbl" for="f-notes">Note</label>
-            <textarea id="f-notes" rows="3" class="field mt-1.5" placeholder="Dettagli (opzionale)">${esc(form.notes)}</textarea></div>
-          <div><span class="lbl">Foto</span>
-            ${foto ? `<img src="${esc(foto)}" class="thumb mt-1.5" alt="Foto" data-lb="${esc(foto)}">` : ''}
-            <div class="flex gap-2 mt-2">
-              <button type="button" class="btn btn-ghost flex-1" data-act="pick-photo">📷 ${foto ? 'Cambia' : 'Scatta o scegli'} foto</button>
-              ${foto ? '<button type="button" class="btn btn-danger" data-act="clear-photo">🗑</button>' : ''}
-            </div></div>`;
+  if (eLavoro ? (mod.extra || !nuovo) : true) {
+    h += `<div><label class="didascalia" for="m-note">Note</label>
+            <textarea id="m-note" rows="3" class="campo mt-1.5" placeholder="Dettagli (opzionale)">${pul(mod.note)}</textarea></div>
+          ${bloccoFoto('Foto')}`;
   }
 
-  h += `<button class="btn btn-primary btn-wide" data-act="save">${nuovo ? '＋ Aggiungi' : '💾 Salva modifiche'}</button>`;
-  if (!nuovo) h += `<button class="btn btn-danger btn-wide" data-act="del-sheet">🗑 Elimina</button>`;
-  if (!nuovo && isRot) h += `<p class="text-xs font-semibold text-center" style="color:var(--ink-2)">
+  h += `<button class="bot bot-verde bot-largo" data-azione="salva">${nuovo ? '＋ Aggiungi' : '💾 Salva modifiche'}</button>`;
+  if (!nuovo) {
+    if (eLavoro && mod.scadenza) h += '<button class="bot bot-chiaro bot-largo" data-azione="google-calendar">📆 Aggiungi a Google Calendar</button>';
+    h += '<button class="bot bot-rosso bot-largo" data-azione="elimina-nel-pannello">🗑 Elimina</button>';
+  }
+  if (!nuovo && eRoutine) h += `<p class="text-xs font-semibold text-center" style="color:var(--inchiostro2)">
       Le routine tornano “da fare” ogni giorno. Non hanno scadenza.</p>`;
-
-  $('#sheet-body').innerHTML = h;
+  $('#pannello-corpo').innerHTML = h;
 }
 
-// tiene aggiornato `form` con quello che è stato scritto nei campi liberi
-function leggiCampi() {
-  const t = $('#f-title'); if (t) form.title = t.value;
-  const n = $('#f-notes'); if (n) form.notes = n.value;
-  const d = $('#f-due');   if (d) form.due_date = d.value;
-}
-
-async function salvaSheet() {
+async function salva() {
   leggiCampi();
-  const titolo = (form.title || '').trim();
-  if (!titolo) { toast('Scrivi prima cosa serve', true); const e = $('#f-title'); if (e) e.focus(); return; }
-  const btn = $('[data-act="save"]');
-  if (btn) { btn.disabled = true; btn.textContent = 'Salvo…'; }
+  const k = tipoAperto;
+  const nuovo = modo === 'nuovo';
+  const bot = $('[data-azione="salva"]');
+  const titolo = String(mod.titolo || '').trim();
 
-  const k = sheetKind;
-  const row = { title: titolo, notes: (form.notes || '').trim() || null };
-  if (k === 'Lavoro' || k === 'Routine') {
-    row.category = form.category; row.estimated_time = form.estimated_time; row.assigned_to = form.assigned_to;
-  }
-  if (k === 'Lavoro') {
-    row.priority = form.priority;
-    row.due_date = form.due_date || null;
-    row.status = form.status;
-    row.completed_at = form.status === 'Completato' ? (new Date()).toISOString() : null;
-  }
-  if (k === 'Nota')  { row.assigned_to = me; }
-  if (k === 'Spesa') { row.assigned_to = 'Tutti'; }
+  if (k !== 'Intervento' && !titolo) { avvisa('Scrivi prima il nome', true); const e = $('#m-titolo'); if (e) e.focus(); return; }
+  if (bot) { bot.disabled = true; bot.textContent = 'Salvo…'; }
 
   try {
-    if (photo.sheet) row.photo_url = await store.uploadPhoto(photo.sheet.blob, photo.sheet.dataUrl);
-    if (sheetMode === 'new') {
-      row.kind = k;
-      row.status = row.status || 'Da fare';
-      if (k === 'Routine') { row.is_daily_routine = true; row.sort_order = routines().length + 1; }
-      upsertLocal(await store.insert(row));
-      // nella spesa resto nel form per aggiungerne altri di fila
-      if (k === 'Spesa') {
-        form.title = ''; buildSheet(); render();
-        const e = $('#f-title'); if (e) e.focus();
-        toast('Aggiunto alla lista'); return;
+    let urlFoto = null;
+    if (fotoScelta.dati) urlFoto = await archivio.caricaFoto(fotoScelta.dati.blob, fotoScelta.dati.dataUrl);
+
+    if (k === 'Animale') {
+      const riga = { nome: titolo, specie: mod.specie, razza: mod.razza || null,
+        data_nascita: mod.data_nascita || null, codice_stalla: mod.codice_stalla || null,
+        costo_acquisto: mod.costo_acquisto === '' ? null : Number(mod.costo_acquisto),
+        note: (mod.note || '').trim() || null };
+      if (urlFoto) riga.foto_url = urlFoto;
+      metti('animali', nuovo ? await archivio.inserisci('animali', riga) : await archivio.modifica('animali', idAperto, riga));
+      chiudiPannello(); disegna(); avvisa(nuovo ? 'Animale aggiunto' : 'Modifiche salvate');
+      return;
+    }
+
+    if (k === 'Intervento') {
+      const riga = { animale_id: animaleAperto, tipo_evento: mod.tipo_evento,
+        data_evento: mod.data_evento || OGGI, descrizione: (mod.descrizione || '').trim() || null,
+        nome_veterinario: (mod.nome_veterinario || '').trim() || null,
+        costo: mod.costo === '' ? null : Number(mod.costo) };
+      if (urlFoto) riga.foto_ricevuta_url = urlFoto;
+      metti('interventi', nuovo ? await archivio.inserisci('interventi', riga) : await archivio.modifica('interventi', idAperto, riga));
+      disegna(); avvisa(nuovo ? 'Intervento aggiunto' : 'Modifiche salvate');
+      apriAnimale(animaleAperto);            // torno alla carta d'identità aggiornata
+      return;
+    }
+
+    if (k === 'Contatto') {
+      const riga = { nome: titolo, ruolo: mod.ruolo, telefono: (mod.telefono || '').trim() || null,
+        note: (mod.note || '').trim() || null };
+      metti('contatti', await archivio.inserisci('contatti', riga));
+      disegna(); avvisa('Contatto aggiunto'); apriContatti();
+      return;
+    }
+
+    // attività / routine / nota / spesa
+    const riga = { titolo, note: (mod.note || '').trim() || null };
+    if (k === 'Lavoro' || k === 'Routine' || k === 'Nota') riga.categoria = mod.categoria;
+    if (k === 'Lavoro' || k === 'Routine') { riga.tempo_stimato = mod.tempo_stimato; riga.assegnato_a = mod.assegnato_a; }
+    if (k === 'Lavoro') {
+      riga.priorita = mod.priorita;
+      riga.scadenza = mod.scadenza || null;
+      riga.stato = mod.stato;
+      riga.completato_il = mod.stato === 'Completato' ? new Date().toISOString() : null;
+    }
+    if (k === 'Nota')  riga.assegnato_a = io;
+    if (k === 'Spesa') riga.assegnato_a = 'Tutti';
+    if (urlFoto) riga.foto_url = urlFoto;
+
+    if (nuovo) {
+      riga.tipo = k;
+      riga.stato = riga.stato || 'Da fare';
+      if (k === 'Routine') { riga.routine_giornaliera = true; riga.ordine = leRoutine().length + 1; }
+      metti('attivita', await archivio.inserisci('attivita', riga));
+      if (k === 'Spesa') {                       // resto nel modulo per aggiungerne altri
+        mod.titolo = ''; disegnaPannello(); disegna();
+        const e = $('#m-titolo'); if (e) e.focus();
+        avvisa('Aggiunto alla lista'); return;
       }
-      closeSheet(); render(); toast(k === 'Nota' ? 'Nota salvata' : 'Aggiunto');
+      chiudiPannello(); disegna(); avvisa(k === 'Nota' ? 'Nota salvata' : 'Aggiunto');
     } else {
-      if (sheetKind === 'Lavoro' && form.status !== 'Completato') row.completed_at = null;
-      upsertLocal(await store.update(sheetId, row));
-      closeSheet(); render(); toast('Modifiche salvate');
+      metti('attivita', await archivio.modifica('attivita', idAperto, riga));
+      chiudiPannello(); disegna(); avvisa('Modifiche salvate');
     }
   } catch (e) {
-    toast('Non salvato: ' + (e.message || e), true);
-    if (btn) { btn.disabled = false; buildSheet(); }
+    avvisa('Non salvato: ' + (e.message || e), true);
+    if (bot) { bot.disabled = false; disegnaPannello(); }
   }
+}
+
+/* ==========================================================================
+   GOOGLE CALENDAR / BACKUP
+   ========================================================================== */
+function googleCalendar(id) {
+  const t = attivita.find((x) => x.id === id);
+  if (!t || !t.scadenza) { avvisa('Serve una scadenza', true); return; }
+  const g = t.scadenza.replace(/-/g, '');
+  const dopo = new Date(t.scadenza); dopo.setDate(dopo.getDate() + 1);
+  const g2 = isoDi(dopo).replace(/-/g, '');
+  const dett = [t.note, t.categoria ? 'Categoria: ' + t.categoria : '', 'Chi: ' + t.assegnato_a,
+                t.tempo_stimato ? 'Tempo stimato: ' + t.tempo_stimato : ''].filter(Boolean).join('\n');
+  const url = 'https://calendar.google.com/calendar/render?action=TEMPLATE'
+    + '&text=' + encodeURIComponent('🚜 ' + t.titolo)
+    + '&dates=' + g + '/' + g2
+    + '&details=' + encodeURIComponent(dett);
+  window.open(url, '_blank', 'noopener');
+}
+
+function scarica(nomeFile, contenuto, tipo) {
+  const b = new Blob([contenuto], { type: tipo });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(b); a.download = nomeFile;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+function inCsv(righe) {
+  if (!righe.length) return '';
+  const col = Object.keys(righe[0]);
+  const cella = (v) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  return [col.join(';')].concat(righe.map((r) => col.map((c) => cella(r[c])).join(';'))).join('\r\n');
+}
+function backupJson() {
+  const d = { esportato_il: new Date().toISOString(), attivita, animali, interventi, contatti };
+  scarica(`fattoria-backup-${OGGI}.json`, JSON.stringify(d, null, 2), 'application/json');
+  avvisa('Backup JSON scaricato');
+}
+function backupCsv() {
+  const parti = [['ATTIVITA', attivita], ['ANIMALI', animali], ['INTERVENTI', interventi], ['CONTATTI', contatti]]
+    .filter(([, r]) => r.length)
+    .map(([n, r]) => n + '\r\n' + inCsv(r)).join('\r\n\r\n');
+  scarica(`fattoria-backup-${OGGI}.csv`, '﻿' + parti, 'text/csv;charset=utf-8');
+  avvisa('Backup CSV scaricato');
 }
 
 /* ==========================================================================
    IMPOSTAZIONI
    ========================================================================== */
-function openSettings() { sheetMode = 'settings'; buildSettings(); apriSheet(); }
-function buildSettings() {
-  $('#sheet-title').textContent = 'Impostazioni';
-  const rt = routines();
-  $('#sheet-body').innerHTML = `
-    <div><span class="lbl">Chi sta usando l'app</span>
-      <p class="text-sm font-semibold mt-1" style="color:var(--ink-2)">Serve al filtro “Solo i miei” e come valore predefinito nelle nuove attività.</p>
+function apriImpostazioni() { modo = 'impostazioni'; disegnaImpostazioni(); apriPannello(); }
+function disegnaImpostazioni() {
+  $('#pannello-titolo').textContent = 'Impostazioni';
+  const rt = leRoutine();
+  $('#pannello-corpo').innerHTML = `
+    <div><span class="didascalia">Chi sta usando l'app</span>
       <div class="flex gap-2 mt-2">
-        <button class="chip flex-1" data-me="Io"   aria-pressed="${me === 'Io'}">Io</button>
-        <button class="chip flex-1" data-me="Anna" aria-pressed="${me === 'Anna'}">Anna</button>
-      </div>
-    </div>
-    <div><span class="lbl">Collegamento</span>
-      <p class="mt-1 font-bold">${CONFIGURED ? 'Database Supabase' : 'Solo questo dispositivo'}</p>
-      <p class="text-sm font-semibold" style="color:var(--ink-2)">Stato: ${esc($('#conn').textContent)}</p>
-    </div>
-    <div><span class="lbl">Routine giornaliere (${rt.length})</span>
-      <p class="text-sm font-semibold mt-1" style="color:var(--ink-2)">Tocca il nome per modificarla. Si possono modificare anche dalla sezione Oggi.</p>
+        <button class="past flex-1" data-io="Io"   aria-pressed="${io === 'Io'}">Io</button>
+        <button class="past flex-1" data-io="Anna" aria-pressed="${io === 'Anna'}">Anna</button>
+      </div></div>
+
+    <div><span class="didascalia">Collegamento</span>
+      <p class="mt-1 font-bold">${CONFIGURATO ? 'Database Supabase' : 'Solo questo dispositivo'}</p>
+      <p class="text-sm font-semibold" style="color:var(--inchiostro2)">Stato: ${pul($('#stato-rete').textContent)}</p></div>
+
+    <div><span class="didascalia">Routine giornaliere (${rt.length})</span>
+      <p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">Tocca il nome per modificarla.</p>
       <div class="space-y-2 mt-2">
-        ${rt.map((t) => `<div class="card flex items-center gap-2">
-            <button type="button" class="flex-1 text-left" data-open="${t.id}">
-              <span class="block font-bold">${esc(t.title)} <span style="color:var(--ink-2)">›</span></span>
-              <span class="block text-xs font-semibold mt-0.5" style="color:var(--ink-2)">${esc(t.assigned_to)}${t.estimated_time ? ' · ' + esc(t.estimated_time) : ''}</span>
+        ${rt.map((t) => `<div class="scheda scheda-fitta flex items-center gap-2">
+            <button type="button" class="flex-1 text-left min-w-0" data-apri="${t.id}">
+              <span class="block font-bold truncate">${pul(t.titolo)} <span style="color:var(--inchiostro2)">›</span></span>
+              <span class="block text-xs font-semibold mt-0.5" style="color:var(--inchiostro2)">${pul(t.assegnato_a)}${t.tempo_stimato ? ' · ' + pul(t.tempo_stimato) : ''}</span>
             </button>
-            <button class="btn btn-danger btn-sm" data-act="del" data-id="${t.id}">🗑</button>
+            <button class="bot bot-rosso bot-piccolo shrink-0" data-azione="elimina" data-id="${t.id}">🗑</button>
           </div>`).join('') || '<p class="text-sm font-semibold">Nessuna routine.</p>'}
       </div>
-      <button class="btn btn-ghost w-full mt-2" data-act="new-routine">＋ Nuova routine</button>
-    </div>
-    <button class="btn btn-ghost btn-wide" data-act="retry">🔄 Ricarica i dati</button>`;
+      <button class="bot bot-chiaro w-full mt-2" data-azione="nuova-routine">＋ Nuova routine</button></div>
+
+    <div><span class="didascalia">Contatti utili</span>
+      <button class="bot bot-chiaro w-full mt-2" data-azione="apri-contatti">📞 Apri rubrica (${contatti.length})</button></div>
+
+    <div><span class="didascalia">Backup dei dati</span>
+      <p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">
+        Scarica una copia di attività, animali, interventi e contatti sul telefono.</p>
+      <div class="flex gap-2 mt-2">
+        <button class="bot bot-chiaro flex-1" data-azione="backup-json">⬇️ JSON</button>
+        <button class="bot bot-chiaro flex-1" data-azione="backup-csv">⬇️ CSV</button>
+      </div></div>
+
+    <button class="bot bot-chiaro bot-largo" data-azione="riprova">🔄 Ricarica i dati</button>`;
 }
 
 /* ==========================================================================
    EVENTI
    ========================================================================== */
 document.addEventListener('click', (ev) => {
-  const el = ev.target.closest('[data-act],[data-view],[data-open],[data-mine],[data-set],[data-me],[data-lb],[data-cal]');
+  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg]');
   if (!el) return;
 
-  if (el.dataset.view) {
-    if (!$('#sheet').hidden) closeSheet();
-    view = el.dataset.view; window.scrollTo({ top: 0 }); render(); return;
+  if (el.dataset.vista) {
+    if (!$('#pannello').hidden) chiudiPannello();
+    vista = el.dataset.vista; window.scrollTo({ top: 0 }); disegna(); return;
   }
-  if (el.dataset.cal) { calSel = el.dataset.cal; render(); return; }
-  if (el.dataset.lb)  { $('#lightbox img').src = el.dataset.lb; $('#lightbox').hidden = false; return; }
-  if (el.dataset.mine) { mine = el.dataset.mine; render(); return; }
-  if (el.dataset.me)   { me = el.dataset.me; localStorage.setItem('fattoria_me', me); buildSettings(); render(); return; }
-
-  if (el.dataset.set) {                       // chip del form
-    leggiCampi();
-    form[el.dataset.set] = el.dataset.value;
-    buildSheet();
-    return;
-  }
+  if (el.dataset.giorno)  { calSel = el.dataset.giorno; disegna(); return; }
+  if (el.dataset.lente)   { $('#lente img').src = el.dataset.lente; $('#lente').hidden = false; return; }
+  if (el.dataset.miei)    { filtroMiei = el.dataset.miei; disegna(); return; }
+  if (el.dataset.filtroReg) { filtroReg = el.dataset.filtroReg; disegna(); return; }
+  if (el.dataset.io)      { io = el.dataset.io; localStorage.setItem('fattoria_io', io); disegnaImpostazioni(); disegna(); return; }
+  if (el.dataset.animale) { apriAnimale(el.dataset.animale); return; }
+  if (el.dataset.intervento) { apriIntervento(el.dataset.intervento); return; }
+  if (el.dataset.imposta) { leggiCampi(); mod[el.dataset.imposta] = el.dataset.valore; disegnaPannello(); return; }
 
   const id = el.dataset.id;
-  switch (el.dataset.act) {
-    case 'routine':  toggleRoutine(id); return;
-    case 'spesa':    toggleSpesa(id); return;
-    case 'start':    ev.stopPropagation(); patch(id, { status: 'In corso' }, '▶ In corso'); return;
-    case 'done':     ev.stopPropagation(); patch(id, { status: 'Completato', completed_at: new Date().toISOString() }, '✓ Completato'); return;
-    case 'del':      ev.stopPropagation(); removeTask(id).then(() => { if (sheetMode === 'settings') buildSettings(); }); return;
-    case 'svuota-spesa': svuotaSpesa(); return;
-    case 'retry':    closeSheet(); loadFailed = false; reload(true); return;
-    case 'cal-prev': calM--; if (calM < 0) { calM = 11; calY--; } render(); return;
-    case 'cal-next': calM++; if (calM > 11) { calM = 0; calY++; } render(); return;
-    case 'cal-today': { const d = new Date(); calY = d.getFullYear(); calM = d.getMonth(); calSel = TODAY; render(); return; }
-    case 'new-per-giorno': openNew('Lavoro', calSel); return;
-    case 'new-routine': openNew('Routine'); return;
-    case 'extra':    leggiCampi(); form.extra = true; buildSheet(); return;
-    case 'pick-photo':  $('#photo-input').click(); return;
-    case 'clear-photo': leggiCampi(); photo.sheet = null; form.photo_url = null; buildSheet(); return;
-    case 'save':     salvaSheet(); return;
-    case 'del-sheet':
-      if (el.dataset.armed !== '1') { el.dataset.armed = '1'; el.textContent = '⚠️ Tocca di nuovo per eliminare'; return; }
-      { const x = sheetId; closeSheet(); removeTask(x); } return;
+  switch (el.dataset.azione) {
+    case 'routine':  spuntaRoutine(id); return;
+    case 'spesa':    spuntaSpesa(id); return;
+    case 'inizia':   ev.stopPropagation(); cambia('attivita', id, { stato: 'In corso' }, '▶ In corso'); return;
+    case 'finisci':  ev.stopPropagation(); cambia('attivita', id, { stato: 'Completato', completato_il: new Date().toISOString() }, '✓ Completato'); return;
+    case 'elimina':  ev.stopPropagation(); elimina('attivita', id).then(() => { if (modo === 'impostazioni') disegnaImpostazioni(); }); return;
+    case 'elimina-contatto': elimina('contatti', id).then(() => apriContatti()); return;
+    case 'svuota-comprati': svuotaComprati(); return;
+    case 'riprova':  chiudiPannello(); caricoRotto = false; ricarica(true); return;
+    case 'mese-prec': calM--; if (calM < 0) { calM = 11; calA--; } disegna(); return;
+    case 'mese-succ': calM++; if (calM > 11) { calM = 0; calA++; } disegna(); return;
+    case 'cal-oggi': { const d = new Date(); calA = d.getFullYear(); calM = d.getMonth(); calSel = OGGI; disegna(); return; }
+    case 'nuovo-nel-giorno': apriNuovo('Lavoro', calSel); return;
+    case 'nuova-routine':    apriNuovo('Routine'); return;
+    case 'nuovo-contatto':   apriNuovo('Contatto'); return;
+    case 'nuovo-intervento': apriNuovo('Intervento'); return;
+    case 'modifica-animale': apriModificaAnimale(animaleAperto); return;
+    case 'elimina-animale':
+      if (el.dataset.armato !== '1') { el.dataset.armato = '1'; el.textContent = '⚠️ Tocca di nuovo: elimina anche gli interventi'; return; }
+      { const x = animaleAperto; chiudiPannello(); elimina('animali', x); } return;
+    case 'apri-contatti': apriContatti(); return;
+    case 'extra':    leggiCampi(); mod.extra = true; disegnaPannello(); return;
+    case 'prendi-foto': $('#scegli-foto').click(); return;
+    case 'togli-foto':  leggiCampi(); fotoScelta.dati = null; mod.foto_url = null; disegnaPannello(); return;
+    case 'salva':    salva(); return;
+    case 'google-calendar': googleCalendar(idAperto); return;
+    case 'backup-json': backupJson(); return;
+    case 'backup-csv':  backupCsv(); return;
+    case 'elimina-nel-pannello':
+      if (el.dataset.armato !== '1') { el.dataset.armato = '1'; el.textContent = '⚠️ Tocca di nuovo per eliminare'; return; }
+      {
+        const x = idAperto, k = tipoAperto, an = animaleAperto;
+        if (k === 'Animale') { chiudiPannello(); elimina('animali', x); }
+        else if (k === 'Intervento') { elimina('interventi', x).then(() => apriAnimale(an)); }
+        else { chiudiPannello(); elimina('attivita', x); }
+      } return;
   }
 
-  if (el.dataset.open) openEdit(el.dataset.open);
+  if (el.dataset.apri) apriModifica(el.dataset.apri);
 });
 
-$('#fab').addEventListener('click', () => {
-  if (view === 'registro') openNew('Nota');
-  else if (view === 'spesa') openNew('Spesa');
-  else if (view === 'calendario') openNew('Lavoro', calSel);
-  else openNew('Lavoro');
+$('#aggiungi').addEventListener('click', () => {
+  if (vista === 'animali')  apriNuovo('Animale');
+  else if (vista === 'registro') apriNuovo('Nota');
+  else if (vista === 'spesa')    apriNuovo('Spesa');
+  else apriNuovo('Lavoro', vista === 'oggi' && calSel !== OGGI ? calSel : '');
 });
-$('#btn-settings').addEventListener('click', openSettings);
-$('#btn-me').addEventListener('click', openSettings);
-$('#sheet-close').addEventListener('click', closeSheet);
-$('#sheet-bg').addEventListener('click', closeSheet);
-$('#lb-close').addEventListener('click', () => { $('#lightbox').hidden = true; });
-$('#lightbox').addEventListener('click', (e) => { if (e.target.id === 'lightbox') $('#lightbox').hidden = true; });
+$('#bot-avvisi').addEventListener('click', apriAvvisi);
+$('#bot-impostazioni').addEventListener('click', apriImpostazioni);
+$('#bot-io').addEventListener('click', apriImpostazioni);
+$('#pannello-chiudi').addEventListener('click', chiudiPannello);
+$('#pannello-sfondo').addEventListener('click', chiudiPannello);
+$('#lente-chiudi').addEventListener('click', () => { $('#lente').hidden = true; });
+$('#lente').addEventListener('click', (e) => { if (e.target.id === 'lente') $('#lente').hidden = true; });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (!$('#lightbox').hidden) $('#lightbox').hidden = true;
-  else if (!$('#sheet').hidden) closeSheet();
+  if (!$('#lente').hidden) $('#lente').hidden = true;
+  else if (!$('#pannello').hidden) chiudiPannello();
 });
-document.addEventListener('change', (e) => { if (e.target.id === 'f-due') { form.due_date = e.target.value; buildSheet(); } });
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'm-scadenza') { mod.scadenza = e.target.value; disegnaPannello(); }
+});
 
 /* ==========================================================================
-   REALTIME
+   SINCRONIZZAZIONE ISTANTANEA
    ========================================================================== */
-function startRealtime() {
-  channel = db.channel('tasks-live')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload) => {
-      if (payload.eventType === 'DELETE') {
-        const id = payload.old && payload.old.id;
-        if (id) tasks = tasks.filter((t) => t.id !== id);
-      } else if (payload.new) upsertLocal(payload.new);
-      if (loadFailed) { loadFailed = false; reload(false); return; }
-      render();
-    })
-    .subscribe((st) => {
-      if (st === 'SUBSCRIBED') setConn('● Live', '#DCF0D6', '#14401A');
-      else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') setConn('● Offline', '#8C1D18', '#fff');
-      else setConn('● …', '#ffffffcc');
+const COLL_DI_TABELLA = { attivita: 'attivita', animali: 'animali', interventi_animali: 'interventi', contatti: 'contatti' };
+
+function avviaSincronia() {
+  canale = sb.channel('fattoria-live');
+  Object.keys(COLL_DI_TABELLA).forEach((tab) => {
+    canale.on('postgres_changes', { event: '*', schema: 'public', table: tab }, (p) => {
+      const coll = COLL_DI_TABELLA[tab];
+      if (p.eventType === 'DELETE') {
+        const id = p.old && p.old.id;
+        if (id) {
+          if (coll === 'attivita') attivita = attivita.filter((x) => x.id !== id);
+          if (coll === 'animali') animali = animali.filter((x) => x.id !== id);
+          if (coll === 'interventi') interventi = interventi.filter((x) => x.id !== id);
+          if (coll === 'contatti') contatti = contatti.filter((x) => x.id !== id);
+        }
+      } else if (p.new) metti(coll, p.new);
+      if (caricoRotto) { caricoRotto = false; ricarica(false); return; }
+      disegna();
+      if (modo === 'animale' && animaleAperto) apriAnimale(animaleAperto);
     });
+  });
+  canale.subscribe((st) => {
+    if (st === 'SUBSCRIBED') statoRete('● Live', '#DCF0D6', '#14401A');
+    else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') statoRete('● Offline', '#8C1D18', '#fff');
+    else statoRete('● …', '#ffffffcc');
+  });
 }
 
 /* ==========================================================================
    CARICAMENTO
    ========================================================================== */
-async function reload(showToast) {
-  const mia = ++reloadSeq;
+async function ricarica(conMessaggio) {
+  const mia = ++seqCarico;
   try {
-    const data = await store.load();
-    if (mia !== reloadSeq) return;
-    tasks = data; loadFailed = false; render();
-    if (showToast) toast('Dati aggiornati');
+    const d = await archivio.carica();
+    if (mia !== seqCarico) return;
+    attivita = d.attivita; animali = d.animali; interventi = d.interventi; contatti = d.contatti;
+    caricoRotto = false; disegna();
+    if (conMessaggio) avvisa('Dati aggiornati');
   } catch (e) {
-    if (mia !== reloadSeq) return;
-    loadFailed = true; showLoadError(e);
-    toast('Dati non caricati: ' + (e.message || e), true);
+    if (mia !== seqCarico) return;
+    caricoRotto = true; mostraErrore(e);
+    avvisa('Dati non caricati: ' + (e.message || e), true);
   }
 }
 
-setInterval(() => { if (iso(new Date()) !== TODAY) location.reload(); }, 60000);
+setInterval(() => { if (isoDi(new Date()) !== OGGI) location.reload(); }, 60000);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
-  if (iso(new Date()) !== TODAY) { location.reload(); return; }
-  if (CONFIGURED) reload(false);
+  if (isoDi(new Date()) !== OGGI) { location.reload(); return; }
+  if (CONFIGURATO) ricarica(false);
 });
-window.addEventListener('online',  () => { if (CONFIGURED) reload(false); });
-window.addEventListener('offline', () => setConn('● Offline', '#8C1D18', '#fff'));
+window.addEventListener('online',  () => { if (CONFIGURATO) ricarica(false); });
+window.addEventListener('offline', () => statoRete('● Offline', '#8C1D18', '#fff'));
 
-function installIcon() {
-  let icon = '';
+function installaIcona() {
+  let icona = '';
   try {
     const c = document.createElement('canvas'); c.width = c.height = 192;
     const x = c.getContext('2d');
     x.fillStyle = '#8FA583'; x.fillRect(0, 0, 192, 192);
     x.font = '118px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
     x.fillText('🚜', 96, 104);
-    icon = c.toDataURL('image/png');
+    icona = c.toDataURL('image/png');
   } catch (e) {}
-  if (icon) for (const rel of ['apple-touch-icon', 'icon']) {
-    const l = document.createElement('link'); l.rel = rel; l.href = icon; document.head.appendChild(l);
+  if (icona) for (const rel of ['apple-touch-icon', 'icon']) {
+    const l = document.createElement('link'); l.rel = rel; l.href = icona; document.head.appendChild(l);
   }
   const man = { name: 'Fattoria Tasks', short_name: 'Fattoria', start_url: './', display: 'standalone',
                 orientation: 'portrait', background_color: '#E6D8BC', theme_color: '#8FA583',
-                icons: icon ? [{ src: icon, sizes: '192x192', type: 'image/png', purpose: 'any' }] : [] };
+                icons: icona ? [{ src: icona, sizes: '192x192', type: 'image/png', purpose: 'any' }] : [] };
   const l = document.createElement('link');
   l.rel = 'manifest'; l.href = 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(man));
   document.head.appendChild(l);
 }
 
-(async function init() {
-  installIcon();
-  const d = new Date(); calY = d.getFullYear(); calM = d.getMonth(); calSel = TODAY;
-  $('#btn-me').textContent = me === 'Anna' ? 'A' : 'I';
+(async function avvio() {
+  installaIcona();
+  const d = new Date(); calA = d.getFullYear(); calM = d.getMonth(); calSel = OGGI;
+  $('#bot-io').textContent = io === 'Anna' ? 'A' : 'I';
 
-  if (CONFIGURED && window.supabase) {
-    db = window.supabase.createClient(SUPABASE_URL.trim().replace(/\/$/, ''), SUPABASE_ANON_KEY.trim());
-    store = remoteStore;
-    setConn('● …', '#ffffffcc');
-    await reload(false);
-    startRealtime();
+  if (CONFIGURATO && window.supabase) {
+    sb = window.supabase.createClient(SUPABASE_URL.trim().replace(/\/$/, ''), SUPABASE_ANON_KEY.trim());
+    archivio = archivioRemoto;
+    statoRete('● …', '#ffffffcc');
+    await ricarica(false);
+    avviaSincronia();
   } else {
-    store = localStore;
-    setConn('● Locale', '#F6D98A');
-    $('#local-banner').hidden = false;
-    $('#local-banner').innerHTML = CONFIGURED
+    archivio = archivioLocale;
+    statoRete('● Locale', '#F6D98A');
+    $('#avviso-locale').hidden = false;
+    $('#avviso-locale').innerHTML = CONFIGURATO
       ? 'Libreria Supabase non caricata (serve internet). Sto usando i dati di questo dispositivo.'
       : '<b>Modalità locale.</b> Supabase non è configurato: i dati restano su questo dispositivo e non si sincronizzano.';
-    await reload(false);
+    await ricarica(false);
   }
 })();
 </script>
