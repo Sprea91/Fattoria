@@ -79,6 +79,8 @@
   .et-oggi    { background: #8A4B10; color: #fff; border-color: #8A4B10; }
   .et-alta    { background: #C2410C; color: #fff; border-color: #C2410C; }
   .et-chi     { background: #E7EDF7; color: #1D3A6B; border-color: #C8D6EA; }
+  .et-corso   { background: #1D4ED8; color: #fff; border-color: #1D4ED8; }
+  .et-fatto   { background: #3F6B44; color: #fff; border-color: #3F6B44; }
   .et-soldi   { background: #FEF3C7; color: #78350F; border-color: #FDE68A; }
 
   .bot { display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
@@ -257,7 +259,6 @@ const CONFIGURATO = /^https:\/\/[a-z0-9-]+\.supabase\.(co|in)\/?$/i.test(SUPABAS
                     && !/^INCOLLA_QUI/.test(SUPABASE_ANON_KEY.trim());
 
 const CATEGORIE = [{ v: 'Animali', e: '🐄' }, { v: 'Recinti', e: '🚧' }, { v: 'Macchine', e: '🚜' }, { v: 'Altro', e: '📌' }];
-const TEMPI     = ['30m', '1h', '2h+'];
 const PERSONE   = ['Io', 'Anna', 'Tutti'];
 const PRIORITA  = ['Alta', 'Media', 'Bassa'];
 const STATI     = ['Da fare', 'In corso', 'Completato'];
@@ -364,7 +365,7 @@ const archivioLocale = {
         attivita: [['Cibo animali', 'Tutti', 'Animali'], ['Acqua animali', 'Tutti', 'Animali'],
                    ['Raccolta uova', 'Anna', 'Animali'], ['Controllo recinti', 'Io', 'Recinti']]
           .map((r, i) => ({ id: crypto.randomUUID(), tipo: 'Routine', titolo: r[0], assegnato_a: r[1],
-            categoria: r[2], routine_giornaliera: true, tempo_stimato: '30m', priorita: 'Media',
+            categoria: r[2], routine_giornaliera: true, priorita: 'Media',
             stato: 'Da fare', ordine: i + 1, creato_il: new Date().toISOString() })),
         animali: [], interventi: [], contatti: []
       };
@@ -485,8 +486,10 @@ function pastiglie(valori, attuale, campo, classe = 'flex-1') {
 }
 function etichetteDi(t) {
   const out = [];
+  // Lo stato viene per primo: è la cosa che conta guardando l'elenco.
+  if (t.stato === 'In corso')   out.push('<span class="etichetta et-corso">▶ In corso</span>');
+  if (t.stato === 'Completato') out.push('<span class="etichetta et-fatto">✓ Fatto</span>');
   if (t.categoria) out.push(`<span class="etichetta">${emojiCat(t.categoria)} ${pul(t.categoria)}</span>`);
-  if (t.tempo_stimato) out.push(`<span class="etichetta">⏱️ ${pul(t.tempo_stimato)}</span>`);
   out.push(`<span class="etichetta et-chi">👤 ${pul(t.assegnato_a)}</span>`);
   if (t.priorita === 'Alta' && t.stato !== 'Completato') out.push('<span class="etichetta et-alta">🔥 Alta</span>');
   if (t.scadenza && t.stato !== 'Completato') {
@@ -604,7 +607,6 @@ function rigaRoutine(t) {
         <span class="riga-tit">${pul(t.titolo)}</span>
         <span class="mt-1 flex flex-wrap gap-1.5">
           <span class="etichetta et-chi">👤 ${pul(t.assegnato_a)}</span>
-          ${t.tempo_stimato ? `<span class="etichetta">⏱️ ${pul(t.tempo_stimato)}</span>` : ''}
         </span>
       </button>
       <span class="text-xl shrink-0" style="color:var(--inchiostro2)">›</span>
@@ -672,27 +674,32 @@ function widgetCalendario() {
 function disegnaOggi() {
   const rt = leRoutine();
   const fatte = rt.filter(routineFatta).length;
-  const scadute = iLavori().filter((t) => t.stato !== 'Completato' && t.scadenza && giorniDaOggi(t.scadenza) <= 0).sort(perUrgenza);
-  const inCorso = iLavori().filter((t) => t.stato === 'In corso' && !scadute.includes(t)).sort(perUrgenza);
 
-  let h = widgetCalendario();
+  // 1) scadenze: in ritardo e di oggi
+  const scadute = iLavori().filter((t) => t.stato !== 'Completato' && t.scadenza && giorniDaOggi(t.scadenza) <= 0).sort(perUrgenza);
+  // 2) prossimi 7 giorni: da domani in poi
+  const settimana = iLavori().filter((t) => {
+    if (t.stato === 'Completato' || !t.scadenza) return false;
+    const n = giorniDaOggi(t.scadenza);
+    return n >= 1 && n <= 7;
+  }).sort(perUrgenza);
+  // lavori iniziati che non compaiono in nessuna delle due liste sopra
+  // (senza scadenza, o con scadenza oltre i 7 giorni): altrimenti si perderebbero
+  const corsoAltrove = iLavori().filter((t) => t.stato === 'In corso'
+    && !scadute.includes(t) && !settimana.includes(t)).sort(perUrgenza);
+
+  let h = '';
 
   h += `<section><h2 class="titolo-sez">⚠️ Scadenze <span class="conta">${scadute.length}</span></h2>
       <div class="space-y-3">${scadute.length ? scadute.map((t) => schedaLavoro(t)).join('')
         : '<div class="scheda text-center py-6"><div class="text-3xl">👍</div><p class="mt-1 font-black">Nessuna scadenza da recuperare</p></div>'}</div></section>`;
 
-  if (inCorso.length) h += `<section><h2 class="titolo-sez">🔄 In corso <span class="conta">${inCorso.length}</span></h2>
-      <div class="space-y-3">${inCorso.map((t) => schedaLavoro(t)).join('')}</div></section>`;
+  if (corsoAltrove.length) h += `<section><h2 class="titolo-sez">🔄 Iniziati <span class="conta">${corsoAltrove.length}</span></h2>
+      <div class="space-y-3">${corsoAltrove.map((t) => schedaLavoro(t)).join('')}</div></section>`;
 
-  // attività del giorno scelto sul calendario (se diverso da oggi)
-  if (calSel !== OGGI) {
-    const { aperte, fatte: f2 } = delGiorno(calSel);
-    h += `<section><h2 class="titolo-sez">📅 ${pul(dataLunga(calSel))} <span class="conta">${aperte.length}</span></h2>
-        <div class="space-y-3">${aperte.length ? aperte.map((t) => schedaLavoro(t)).join('')
-          : '<div class="scheda text-center py-6"><p class="font-black">Niente in programma</p></div>'}
-        ${f2.length ? f2.map((t) => schedaLavoro(t, false)).join('') : ''}</div>
-        <button class="bot bot-chiaro w-full mt-3" data-azione="nuovo-nel-giorno">＋ Aggiungi in questo giorno</button></section>`;
-  }
+  h += `<section><h2 class="titolo-sez">🗓️ Prossimi 7 giorni <span class="conta">${settimana.length}</span></h2>
+      <div class="space-y-3">${settimana.length ? settimana.map((t) => schedaLavoro(t)).join('')
+        : '<div class="scheda text-center py-6"><p class="font-black">Niente in programma questa settimana</p></div>'}</div></section>`;
 
   h += `<section>
       <h2 class="titolo-sez">☀️ Routine di oggi <span class="conta">${fatte}/${rt.length}</span></h2>
@@ -700,6 +707,18 @@ function disegnaOggi() {
         : '<p class="scheda text-center font-bold py-6">Nessuna routine. Aggiungila da ⚙️</p>'}</div>
       <p class="text-xs font-semibold mt-2 px-1" style="color:var(--inchiostro2)">Cerchietto = fatto · tocca il nome per modificarla</p>
     </section>`;
+
+  // 4) calendario in fondo, con l'elenco del giorno scelto subito sotto
+  h += `<section><h2 class="titolo-sez">📅 Calendario</h2>${widgetCalendario()}</section>`;
+
+  if (calSel !== OGGI) {
+    const { aperte, fatte: f2 } = delGiorno(calSel);
+    h += `<section><h2 class="titolo-sez">${pul(dataLunga(calSel))} <span class="conta">${aperte.length}</span></h2>
+        <div class="space-y-3">${aperte.length ? aperte.map((t) => schedaLavoro(t)).join('')
+          : '<div class="scheda text-center py-6"><p class="font-black">Niente in programma</p></div>'}
+        ${f2.length ? f2.map((t) => schedaLavoro(t, false)).join('') : ''}</div>
+        <button class="bot bot-chiaro w-full mt-3" data-azione="nuovo-nel-giorno">＋ Aggiungi in questo giorno</button></section>`;
+  }
 
   $('#corpo-oggi').innerHTML = h;
 }
@@ -1028,7 +1047,7 @@ async function elimina(coll, id) {
    ========================================================================== */
 function apriNuovo(tipo, scadenza) {
   modo = 'nuovo'; idAperto = null; tipoAperto = tipo; fotoScelta.dati = null;
-  mod = { titolo: '', categoria: tipo === 'Nota' ? 'Animali' : 'Animali', tempo_stimato: '30m',
+  mod = { titolo: '', categoria: 'Animali',
           assegnato_a: io, priorita: 'Media', stato: 'Da fare', scadenza: scadenza || '', note: '',
           specie: 'Bovino', razza: '', data_nascita: '', codice_stalla: '', costo_acquisto: '',
           tipo_evento: 'Visita veterinaria', data_evento: OGGI, descrizione: '', nome_veterinario: '', costo: '',
@@ -1039,7 +1058,7 @@ function apriNuovo(tipo, scadenza) {
 function apriModifica(id) {
   const t = attivita.find((x) => x.id === id); if (!t) return;
   modo = 'modifica'; idAperto = id; tipoAperto = t.tipo || 'Lavoro'; fotoScelta.dati = null;
-  mod = { titolo: t.titolo || '', categoria: t.categoria || 'Altro', tempo_stimato: t.tempo_stimato || '30m',
+  mod = { titolo: t.titolo || '', categoria: t.categoria || 'Altro',
           assegnato_a: t.assegnato_a || 'Io', priorita: t.priorita || 'Media', stato: t.stato || 'Da fare',
           scadenza: t.scadenza || '', note: t.note || '', foto_url: t.foto_url || null, extra: true };
   disegnaPannello(); apriPannello();
@@ -1181,8 +1200,7 @@ function disegnaPannello() {
             <div class="flex flex-wrap gap-2 mt-1.5">${pastiglie(CATEGORIE, mod.categoria, 'categoria', '')}</div></div>`;
   }
   if (eLavoro || eRoutine) {
-    h += `<div><span class="didascalia">Tempo</span><div class="flex gap-2 mt-1.5">${pastiglie(TEMPI, mod.tempo_stimato, 'tempo_stimato')}</div></div>
-          <div><span class="didascalia">Chi lo fa</span><div class="flex gap-2 mt-1.5">${pastiglie(PERSONE, mod.assegnato_a, 'assegnato_a')}</div></div>`;
+    h += `<div><span class="didascalia">Chi lo fa</span><div class="flex gap-2 mt-1.5">${pastiglie(PERSONE, mod.assegnato_a, 'assegnato_a')}</div></div>`;
   }
   if (eLavoro) {
     if (nuovo && !mod.extra) {
@@ -1262,7 +1280,7 @@ async function salva() {
     // attività / routine / nota / spesa
     const riga = { titolo, note: (mod.note || '').trim() || null };
     if (k === 'Lavoro' || k === 'Routine' || k === 'Nota') riga.categoria = mod.categoria;
-    if (k === 'Lavoro' || k === 'Routine') { riga.tempo_stimato = mod.tempo_stimato; riga.assegnato_a = mod.assegnato_a; }
+    if (k === 'Lavoro' || k === 'Routine') riga.assegnato_a = mod.assegnato_a;
     if (k === 'Lavoro') {
       riga.priorita = mod.priorita;
       riga.scadenza = mod.scadenza || null;
@@ -1304,7 +1322,7 @@ function googleCalendar(id) {
   const dopo = new Date(t.scadenza); dopo.setDate(dopo.getDate() + 1);
   const g2 = isoDi(dopo).replace(/-/g, '');
   const dett = [t.note, t.categoria ? 'Categoria: ' + t.categoria : '', 'Chi: ' + t.assegnato_a,
-                t.tempo_stimato ? 'Tempo stimato: ' + t.tempo_stimato : ''].filter(Boolean).join('\n');
+                'Stato: ' + t.stato].filter(Boolean).join('\n');
   const url = 'https://calendar.google.com/calendar/render?action=TEMPLATE'
     + '&text=' + encodeURIComponent('🚜 ' + t.titolo)
     + '&dates=' + g + '/' + g2
@@ -1365,7 +1383,7 @@ function disegnaImpostazioni() {
         ${rt.map((t) => `<div class="scheda scheda-fitta flex items-center gap-2">
             <button type="button" class="flex-1 text-left min-w-0" data-apri="${t.id}">
               <span class="block font-bold truncate">${pul(t.titolo)} <span style="color:var(--inchiostro2)">›</span></span>
-              <span class="block text-xs font-semibold mt-0.5" style="color:var(--inchiostro2)">${pul(t.assegnato_a)}${t.tempo_stimato ? ' · ' + pul(t.tempo_stimato) : ''}</span>
+              <span class="block text-xs font-semibold mt-0.5" style="color:var(--inchiostro2)">${pul(t.assegnato_a)}</span>
             </button>
             <button class="bot bot-rosso bot-piccolo shrink-0" data-azione="elimina" data-id="${t.id}">🗑</button>
           </div>`).join('') || '<p class="text-sm font-semibold">Nessuna routine.</p>'}
