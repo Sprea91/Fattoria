@@ -154,6 +154,16 @@
                   border: 1.5px solid var(--bordo); background: #EFEADC; display: block; }
   .senza-foto { width: 100%; aspect-ratio: 4 / 3; border-radius: .75rem; border: 1.5px dashed var(--bordo);
                 background: #F2EDE0; display: grid; place-items: center; font-size: 2.25rem; }
+  /* riquadro per sistemare l'inquadratura trascinando col dito */
+  #inquadra { position: relative; width: 100%; aspect-ratio: 4 / 3; border-radius: .75rem;
+              overflow: hidden; border: 2px solid var(--verde); background: #EFEADC;
+              touch-action: none; cursor: grab; }
+  #inquadra img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; user-select: none; }
+  #inquadra.intera img { object-fit: contain; }
+  #inquadra:active { cursor: grabbing; }
+  #inquadra .suggerimento { position: absolute; left: 0; right: 0; bottom: 0; padding: .35rem;
+                            background: rgba(20,32,15,.62); color: #fff; font-size: .75rem;
+                            font-weight: 800; text-align: center; }
 
   /* ---------- barra in basso e bottone ---------- */
   #barra { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
@@ -710,6 +720,14 @@ function etichetteDi(t) {
   }
   return out.join('');
 }
+// Come mostrare la foto di un animale dentro il riquadro:
+// 'intera' = si vede tutta (con bordi vuoti), altrimenti riempie il riquadro
+// e la coppia di percentuali dice quale parte tenere in vista.
+function stileFotoAnimale(a) {
+  if (a.foto_inquadratura === 'intera') return 'object-fit:contain;background:#EFEADC';
+  return 'object-position:' + (a.foto_inquadratura || '50% 50%');
+}
+
 const tagFoto = (url, classe = 'mt-2') => url
   ? `<img src="${pul(url)}" class="miniatura ${classe}" alt="Foto" loading="lazy" data-lente="${pul(url)}">` : '';
 
@@ -964,7 +982,7 @@ function disegnaAnimali() {
         <div class="griglia-animali">
           ${animali.map((a) => `
             <button type="button" class="scheda scheda-fitta tocca text-left" data-animale="${a.id}">
-              ${a.foto_url ? `<img src="${pul(a.foto_url)}" class="foto-animale" alt="${pul(a.nome)}" loading="lazy">`
+              ${a.foto_url ? `<img src="${pul(a.foto_url)}" class="foto-animale" alt="${pul(a.nome)}" loading="lazy" style="${stileFotoAnimale(a)}">`
                            : `<div class="senza-foto">${EMOJI_SPECIE[a.specie] || '🐾'}</div>`}
               <p class="font-black mt-2 leading-tight truncate">${pul(a.nome)}</p>
               <p class="text-xs font-bold mt-0.5 truncate" style="color:var(--inchiostro2)">
@@ -985,7 +1003,8 @@ function apriAnimale(id) {
   $('#pannello-titolo').textContent = a.nome;
   const iv = interventiDi(id);
   $('#pannello-corpo').innerHTML = `
-    ${a.foto_url ? `<img src="${pul(a.foto_url)}" class="miniatura" alt="${pul(a.nome)}" data-lente="${pul(a.foto_url)}">`
+    ${a.foto_url ? `<img src="${pul(a.foto_url)}" alt="${pul(a.nome)}" data-lente="${pul(a.foto_url)}"
+        style="width:100%;aspect-ratio:4/3;border-radius:.8rem;border:1.5px solid var(--bordo);display:block;${stileFotoAnimale(a)}">`
                  : `<div class="senza-foto" style="aspect-ratio:16/9">${EMOJI_SPECIE[a.specie] || '🐾'}</div>`}
 
     <div class="scheda">
@@ -1362,7 +1381,8 @@ function apriModificaAnimale(id) {
   modo = 'animale-modifica'; idAperto = id; tipoAperto = 'Animale'; fotoScelta.dati = null;
   mod = { titolo: a.nome || '', specie: a.specie || 'Bovino', razza: a.razza || '',
           data_nascita: a.data_nascita || '', codice_stalla: a.codice_stalla || '',
-          costo_acquisto: a.costo_acquisto ?? '', note: a.note || '', foto_url: a.foto_url || null };
+          costo_acquisto: a.costo_acquisto ?? '', note: a.note || '', foto_url: a.foto_url || null,
+          foto_inquadratura: a.foto_inquadratura || '50% 50%', avevaInquadratura: !!a.foto_inquadratura };
   disegnaPannello(); apriPannello();
 }
 
@@ -1393,6 +1413,75 @@ function leggiCampi() {
     prossimo_il: g('#m-prossimo'), telefono: g('#m-telefono')
   };
   Object.keys(v).forEach((k) => { if (v[k] !== undefined) mod[k] = v[k]; });
+}
+
+// Riquadro per sistemare l'inquadratura della foto di un animale: le foto dei
+// telefoni sono verticali, il riquadro dell'app è orizzontale, quindi senza
+// questo si vedrebbe solo la fascia centrale della foto.
+function bloccoInquadratura(foto) {
+  if (!foto) {
+    return `<div><span class="didascalia">Foto dell'animale</span>
+      <button type="button" class="bot bot-chiaro w-full mt-2" data-azione="prendi-foto">📷 Scatta o scegli foto</button></div>`;
+  }
+  const intera = mod.foto_inquadratura === 'intera';
+  return `<div><span class="didascalia">Foto e inquadratura</span>
+      <div id="inquadra" class="mt-1.5 ${intera ? 'intera' : ''}">
+        <img src="${pul(foto)}" alt="Foto dell'animale" style="object-position:${pul(intera ? '50% 50%' : (mod.foto_inquadratura || '50% 50%'))}">
+        <span class="suggerimento">${intera ? 'Si vede tutta la foto' : '↕ Trascina la foto col dito per inquadrarla'}</span>
+      </div>
+      <div class="flex gap-2 mt-2">
+        <button type="button" class="past flex-1" aria-pressed="${!intera}" data-inquadra="riempi">Riempi il riquadro</button>
+        <button type="button" class="past flex-1" aria-pressed="${intera}" data-inquadra="intera">Mostra tutta</button>
+      </div>
+      <div class="flex gap-2 mt-2">
+        <button type="button" class="bot bot-chiaro flex-1" data-inquadra="centra">🎯 Centra</button>
+        <button type="button" class="bot bot-chiaro flex-1" data-azione="prendi-foto">📷 Cambia</button>
+        <button type="button" class="bot bot-rosso" data-azione="togli-foto">🗑</button>
+      </div></div>`;
+}
+
+// Trascinamento: sposto la parte visibile della foto dentro il riquadro.
+function agganciaTrascinamento() {
+  const box = $('#inquadra');
+  if (!box) return;
+  const img = box.querySelector('img');
+  let attivo = false, xIniziale = 0, yIniziale = 0, xPerc = 50, yPerc = 50;
+
+  const leggiPosizione = () => {
+    const p = (mod.foto_inquadratura && mod.foto_inquadratura !== 'intera') ? mod.foto_inquadratura : '50% 50%';
+    const [a, b] = p.split(' ').map(parseFloat);
+    return [isFinite(a) ? a : 50, isFinite(b) ? b : 50];
+  };
+
+  box.addEventListener('pointerdown', (ev) => {
+    if (mod.foto_inquadratura === 'intera') return;
+    attivo = true;
+    try { box.setPointerCapture(ev.pointerId); } catch (e) {}
+    xIniziale = ev.clientX; yIniziale = ev.clientY;
+    [xPerc, yPerc] = leggiPosizione();
+  });
+
+  box.addEventListener('pointermove', (ev) => {
+    if (!attivo) return;
+    ev.preventDefault();
+    const bw = box.clientWidth, bh = box.clientHeight;
+    const nw = img.naturalWidth, nh = img.naturalHeight;
+    if (!nw || !nh) return;
+    // con il riempimento la foto è ingrandita: `avanzo` è la parte che esce dal
+    // riquadro, ed è quella che possiamo spostare
+    const scala = Math.max(bw / nw, bh / nh);
+    const avanzoX = nw * scala - bw, avanzoY = nh * scala - bh;
+    let nx = xPerc, ny = yPerc;
+    if (avanzoX > 1) nx = Math.min(100, Math.max(0, xPerc - (ev.clientX - xIniziale) / avanzoX * 100));
+    if (avanzoY > 1) ny = Math.min(100, Math.max(0, yPerc - (ev.clientY - yIniziale) / avanzoY * 100));
+    mod.foto_inquadratura = Math.round(nx) + '% ' + Math.round(ny) + '%';
+    img.style.objectPosition = mod.foto_inquadratura;
+  });
+
+  const fine = () => { attivo = false; };
+  box.addEventListener('pointerup', fine);
+  box.addEventListener('pointercancel', fine);
+  box.addEventListener('pointerleave', fine);
 }
 
 function disegnaPannello() {
@@ -1427,9 +1516,10 @@ function disegnaPannello() {
         <input id="m-costo-acquisto" type="number" inputmode="decimal" step="0.01" min="0" class="campo mt-1.5" value="${pul(mod.costo_acquisto)}" placeholder="0.00"></div>
       <div><label class="didascalia" for="m-note">Note</label>
         <textarea id="m-note" rows="3" class="campo mt-1.5" placeholder="Segni particolari, provenienza…">${pul(mod.note)}</textarea></div>
-      ${bloccoFoto('Foto dell\'animale')}
+      ${bloccoInquadratura(foto)}
       <button class="bot bot-verde bot-largo" data-azione="salva">${nuovo ? '＋ Aggiungi animale' : '💾 Salva'}</button>
       ${!nuovo ? '<button class="bot bot-rosso bot-largo" data-azione="elimina-nel-pannello">🗑 Elimina animale</button>' : ''}`;
+    agganciaTrascinamento();
     return;
   }
 
@@ -1564,6 +1654,10 @@ async function salva() {
         costo_acquisto: mod.costo_acquisto === '' ? null : Number(mod.costo_acquisto),
         note: (mod.note || '').trim() || null };
       if (urlFoto) riga.foto_url = urlFoto;
+      // l'inquadratura si invia solo se scelta: l'app funziona anche prima che
+      // la colonna esista nel database
+      if (mod.foto_inquadratura && mod.foto_inquadratura !== '50% 50%') riga.foto_inquadratura = mod.foto_inquadratura;
+      else if (mod.avevaInquadratura) riga.foto_inquadratura = null;
       metti('animali', nuovo ? await archivio.inserisci('animali', riga) : await archivio.modifica('animali', idAperto, riga));
       chiudiPannello(); disegna(); avvisa(nuovo ? 'Animale aggiunto' : 'Modifiche salvate');
       return;
@@ -1860,7 +1954,7 @@ function disegnaImpostazioni() {
    EVENTI
    ========================================================================== */
 document.addEventListener('click', (ev) => {
-  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg]');
+  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra]');
   if (!el) return;
 
   if (el.dataset.vista) {
@@ -1874,6 +1968,14 @@ document.addEventListener('click', (ev) => {
   if (el.dataset.io)      { io = el.dataset.io; localStorage.setItem('fattoria_io', io); disegnaImpostazioni(); disegna(); return; }
   if (el.dataset.animale) { apriAnimale(el.dataset.animale); return; }
   if (el.dataset.intervento) { apriIntervento(el.dataset.intervento); return; }
+  if (el.dataset.inquadra) {
+    leggiCampi();
+    if (el.dataset.inquadra === 'intera') mod.foto_inquadratura = 'intera';
+    if (el.dataset.inquadra === 'riempi') mod.foto_inquadratura = '50% 50%';
+    if (el.dataset.inquadra === 'centra') mod.foto_inquadratura = '50% 50%';
+    disegnaPannello();
+    return;
+  }
   if (el.dataset.imposta) {
     leggiCampi();
     mod[el.dataset.imposta] = el.dataset.valore;
