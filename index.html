@@ -188,6 +188,27 @@
   .miniatura { width: 100%; max-height: 210px; object-fit: cover; border-radius: .8rem;
                border: 1.5px solid var(--bordo); display: block; }
   #lente img { max-width: 100%; max-height: 88vh; object-fit: contain; border-radius: .5rem; }
+  /* ---------- stampa del registro ----------
+     In stampa nascondo tutta l'app e mostro solo il foglio preparato. */
+  #foglio { display: none; }
+  @media print {
+    body { background: #fff !important; }
+    body > *:not(#foglio) { display: none !important; }
+    #foglio { display: block !important; padding: 0; color: #000; font-size: 11pt; }
+    #foglio h1 { font-size: 17pt; margin: 0 0 2mm; }
+    #foglio h2 { font-size: 13pt; margin: 6mm 0 2mm; border-bottom: 1px solid #999; padding-bottom: 1mm; }
+    #foglio table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+    #foglio th, #foglio td { border: 1px solid #999; padding: 1.6mm 2mm; text-align: left; vertical-align: top; }
+    #foglio th { background: #eee; font-weight: 700; }
+    #foglio .dx { text-align: right; white-space: nowrap; }
+    #foglio .anagrafica td { border: none; padding: .8mm 0; }
+    #foglio .anagrafica td:first-child { width: 42mm; color: #444; }
+    #foglio .totale { font-weight: 900; }
+    #foglio .piede { margin-top: 8mm; font-size: 8.5pt; color: #555; }
+    #foglio .animale { page-break-inside: avoid; }
+    #foglio .animale + .animale { page-break-before: always; }
+    @page { margin: 14mm; }
+  }
   .pannello { animation: su .22s cubic-bezier(.2,.8,.2,1); }
   @keyframes su { from { transform: translateY(16px); opacity: .5 } to { transform: none; opacity: 1 } }
   [hidden] { display: none !important; }
@@ -253,6 +274,8 @@
   <button id="lente-chiudi" class="absolute top-4 right-4 w-12 h-12 rounded-full bg-white/90 text-2xl font-black">✕</button>
 </div>
 
+<div id="foglio" aria-hidden="true"></div>
+
 <input id="scegli-foto" type="file" accept="image/*" capture="environment" hidden>
 <div id="messaggio" hidden class="fixed z-[70] left-1/2 -translate-x-1/2 bottom-40 px-4 py-3 rounded-xl text-white font-bold text-sm shadow-xl max-w-[92vw] text-center" style="background:#20281A"></div>
 
@@ -291,6 +314,14 @@ const RICORRENZE = [
 const SPECIE    = ['Bovino', 'Ovino', 'Caprino', 'Avicolo', 'Equino', 'Suino', 'Altro'];
 const EMOJI_SPECIE = { Bovino: '🐄', Ovino: '🐑', Caprino: '🐐', Avicolo: '🐔', Equino: '🐴', Suino: '🐖', Altro: '🐾' };
 const TIPI_EVENTO  = ['Vaccino', 'Sverminazione', 'Visita veterinaria', 'Integratore', 'Altro'];
+// Quando va rifatto l'intervento: crea un promemoria fra le scadenze.
+const PROSSIMI = [
+  { v: 'Nessuno',     mesi: 0 },
+  { v: 'Fra 1 mese',  mesi: 1 },
+  { v: 'Fra 3 mesi',  mesi: 3 },
+  { v: 'Fra 6 mesi',  mesi: 6 },
+  { v: 'Fra 1 anno',  mesi: 12 }
+];
 const RUOLI     = ['Veterinario', 'Mangimista', 'Meccanico', 'Fabbro', 'Altro'];
 const emojiCat  = (v) => (CATEGORIE.find((c) => c.v === v) || {}).e || '📌';
 const MESI = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
@@ -366,21 +397,24 @@ function oraLunga(ts) {
 }
 // Sposta una data secondo la ricorrenza scelta. Se il giorno non esiste nel
 // mese di arrivo (es. 31 gennaio + 1 mese) si usa l'ultimo giorno del mese.
+function spostaGiorni(base, giorni) {
+  const [y, m, g] = (base || OGGI).split('-').map(Number);
+  const d = new Date(y, m - 1, g);
+  d.setDate(d.getDate() + giorni);
+  return isoDi(d);
+}
+function spostaMesi(base, mesi) {
+  const [y, m, g] = (base || OGGI).split('-').map(Number);
+  const totale = (m - 1) + mesi;
+  const anno = y + Math.floor(totale / 12);
+  const mese = ((totale % 12) + 12) % 12;
+  const ultimoDelMese = new Date(anno, mese + 1, 0).getDate();
+  return isoDi(new Date(anno, mese, Math.min(g, ultimoDelMese)));
+}
 function prossimaData(dataPartenza, nomeRicorrenza) {
   const r = RICORRENZE.find((x) => x.v === nomeRicorrenza);
   if (!r || (!r.giorni && !r.mesi)) return null;
-  const base = dataPartenza || OGGI;
-  const [y, m, g] = base.split('-').map(Number);
-  if (r.giorni) {
-    const d = new Date(y, m - 1, g);
-    d.setDate(d.getDate() + r.giorni);
-    return isoDi(d);
-  }
-  const totale = (m - 1) + r.mesi;
-  const anno = y + Math.floor(totale / 12);
-  const mese = totale % 12;
-  const ultimoDelMese = new Date(anno, mese + 1, 0).getDate();
-  return isoDi(new Date(anno, mese, Math.min(g, ultimoDelMese)));
+  return r.giorni ? spostaGiorni(dataPartenza, r.giorni) : spostaMesi(dataPartenza, r.mesi);
 }
 
 function eta(nascita) {
@@ -926,6 +960,7 @@ function disegnaAnimali() {
           <span class="etichetta">🐾 ${animali.length} ${animali.length === 1 ? 'animale' : 'animali'}</span>
           <span class="etichetta et-soldi">💰 spesa totale ${pul(euro(totale) || '—')}</span>
         </div>
+        <button class="bot bot-chiaro w-full" data-azione="stampa-tutti">🖨️ Stampa registro di tutti gli animali</button>
         <div class="griglia-animali">
           ${animali.map((a) => `
             <button type="button" class="scheda scheda-fitta tocca text-left" data-animale="${a.id}">
@@ -986,6 +1021,7 @@ function apriAnimale(id) {
             <div class="flex flex-wrap gap-1.5 mt-2">
               ${x.nome_veterinario ? `<span class="etichetta">🧑‍⚕️ ${pul(x.nome_veterinario)}</span>` : ''}
               ${x.costo ? `<span class="etichetta et-soldi">💰 ${pul(euro(x.costo))}</span>` : ''}
+              ${x.prossimo_il ? `<span class="etichetta ${giorniDaOggi(x.prossimo_il) < 0 ? 'et-ritardo' : giorniDaOggi(x.prossimo_il) <= 0 ? 'et-oggi' : ''}">🔁 da rifare ${pul(etichettaData(x.prossimo_il))}</span>` : ''}
             </div>
             ${tagFoto(x.foto_ricevuta_url)}
           </article>`).join('')
@@ -993,6 +1029,7 @@ function apriAnimale(id) {
       </div>
     </section>
 
+    <button class="bot bot-chiaro bot-largo" data-azione="stampa-animale">🖨️ Stampa registro sanitario</button>
     <button class="bot bot-chiaro bot-largo" data-azione="modifica-animale">✏️ Modifica dati animale</button>
     <button class="bot bot-rosso bot-largo" data-azione="elimina-animale">🗑 Elimina animale</button>`;
   apriPannello();
@@ -1197,6 +1234,25 @@ async function cambia(coll, id, cambi, messaggio) {
   } catch (e) { arr[i] = prima; disegna(); avvisa('Non salvato: ' + (e.message || e), true); }
 }
 
+// Dal "quando va rifatto" di un intervento nasce un normale lavoro con la
+// scadenza: così entra nel calendario, negli avvisi e nella notifica del
+// mattino senza bisogno di codice apposta.
+async function creaPromemoriaSanitario(idAnimale, tipoEvento, quando, descrizione) {
+  const an = animali.find((x) => x.id === idAnimale);
+  const titolo = `🩺 ${tipoEvento} — ${an ? an.nome : 'animale'}`;
+  const giaCe = attivita.some((x) => x.tipo === 'Lavoro' && x.stato !== 'Completato'
+    && x.titolo === titolo && x.scadenza === quando);
+  if (giaCe) return;
+  try {
+    metti('attivita', await archivio.inserisci('attivita', {
+      tipo: 'Lavoro', titolo, categoria: 'Animali', priorita: 'Media',
+      assegnato_a: io, scadenza: quando, stato: 'Da fare',
+      note: [descrizione, 'Promemoria dal registro sanitario'].filter(Boolean).join(' · ')
+    }));
+    avvisa('📅 Promemoria per il ' + quando.split('-').reverse().join('/'));
+  } catch (e) { avvisa('Promemoria non creato: ' + (e.message || e), true); }
+}
+
 // Un lavoro che si ripete: appena lo segni fatto, ne creo il successivo con la
 // data spostata. Se esiste già (per esempio hai completato due volte lo stesso
 // lavoro) non lo duplico.
@@ -1285,6 +1341,7 @@ function apriNuovo(tipo, scadenza) {
           assegnato_a: io, priorita: 'Media', stato: 'Da fare', scadenza: scadenza || '', ora: '', note: '',
           specie: 'Bovino', razza: '', data_nascita: '', codice_stalla: '', costo_acquisto: '',
           tipo_evento: 'Visita veterinaria', data_evento: OGGI, descrizione: '', nome_veterinario: '', costo: '',
+          prossimo: 'Nessuno', prossimo_il: '',
           ruolo: 'Veterinario', telefono: '', extra: false };
   disegnaPannello(); apriPannello();
 }
@@ -1315,7 +1372,8 @@ function apriIntervento(id) {
   animaleAperto = x.animale_id; fotoScelta.dati = null;
   mod = { tipo_evento: x.tipo_evento || 'Altro', data_evento: x.data_evento || OGGI,
           descrizione: x.descrizione || '', nome_veterinario: x.nome_veterinario || '',
-          costo: x.costo ?? '', foto_url: x.foto_ricevuta_url || null };
+          costo: x.costo ?? '', foto_url: x.foto_ricevuta_url || null,
+          prossimo: 'Nessuno', prossimo_il: x.prossimo_il || '', avevaProssimo: !!x.prossimo_il };
   disegnaPannello(); apriPannello();
 }
 
@@ -1332,7 +1390,7 @@ function leggiCampi() {
     razza: g('#m-razza'), data_nascita: g('#m-nascita'), codice_stalla: g('#m-codice'),
     costo_acquisto: g('#m-costo-acquisto'), descrizione: g('#m-descrizione'),
     nome_veterinario: g('#m-veterinario'), costo: g('#m-costo'), data_evento: g('#m-data-evento'),
-    telefono: g('#m-telefono')
+    prossimo_il: g('#m-prossimo'), telefono: g('#m-telefono')
   };
   Object.keys(v).forEach((k) => { if (v[k] !== undefined) mod[k] = v[k]; });
 }
@@ -1390,6 +1448,12 @@ function disegnaPannello() {
         <input id="m-veterinario" class="campo mt-1.5" maxlength="80" value="${pul(mod.nome_veterinario)}" placeholder="Es. dott. Rossi"></div>
       <div><label class="didascalia" for="m-costo">Costo (€)</label>
         <input id="m-costo" type="number" inputmode="decimal" step="0.01" min="0" class="campo mt-1.5" value="${pul(mod.costo)}" placeholder="0.00"></div>
+      <div><span class="didascalia">Quando va rifatto</span>
+        <div class="flex flex-wrap gap-2 mt-1.5">${pastiglie(PROSSIMI.map((p) => p.v), mod.prossimo, 'prossimo', '')}</div>
+        <input id="m-prossimo" type="date" class="campo mt-2" value="${pul(mod.prossimo_il || '')}">
+        <p class="text-xs font-semibold mt-1" style="color:var(--inchiostro2)">
+          Se metti una data, nasce un promemoria fra le scadenze: lo vedrai nel calendario
+          e nella notifica del mattino.</p></div>
       ${bloccoFoto('Foto della ricevuta')}
       <button class="bot bot-verde bot-largo" data-azione="salva">${nuovo ? '＋ Aggiungi intervento' : '💾 Salva'}</button>
       ${!nuovo ? '<button class="bot bot-rosso bot-largo" data-azione="elimina-nel-pannello">🗑 Elimina intervento</button>' : ''}`;
@@ -1511,7 +1575,11 @@ async function salva() {
         nome_veterinario: (mod.nome_veterinario || '').trim() || null,
         costo: mod.costo === '' ? null : Number(mod.costo) };
       if (urlFoto) riga.foto_ricevuta_url = urlFoto;
+      // come per gli altri campi nuovi: lo invio solo quando serve
+      if (mod.prossimo_il) riga.prossimo_il = mod.prossimo_il;
+      else if (mod.avevaProssimo) riga.prossimo_il = null;
       metti('interventi', nuovo ? await archivio.inserisci('interventi', riga) : await archivio.modifica('interventi', idAperto, riga));
+      if (mod.prossimo_il) await creaPromemoriaSanitario(animaleAperto, mod.tipo_evento, mod.prossimo_il, mod.descrizione);
       disegna(); avvisa(nuovo ? 'Intervento aggiunto' : 'Modifiche salvate');
       apriAnimale(animaleAperto);            // torno alla carta d'identità aggiornata
       return;
@@ -1607,6 +1675,58 @@ function googleCalendar(id) {
     + '&dates=' + g + '/' + g2
     + '&details=' + encodeURIComponent(dett);
   window.open(url, '_blank', 'noopener');
+}
+
+/* ==========================================================================
+   REGISTRO SANITARIO DA STAMPARE
+   Prepara un foglio e apre la stampa del telefono, da cui si può anche
+   scegliere "Salva come PDF".
+   ========================================================================== */
+function fogliettoAnimale(a) {
+  const iv = interventiDi(a.id).slice().sort((x, y) => String(x.data_evento).localeCompare(String(y.data_evento)));
+  const gg = (d) => d ? String(d).split('-').reverse().join('/') : '';
+  const totInterventi = iv.reduce((s, x) => s + Number(x.costo || 0), 0);
+  const dati = [
+    ['Nome', a.nome], ['Specie', a.specie], ['Razza', a.razza],
+    ['Data di nascita', a.data_nascita ? gg(a.data_nascita) + ' (' + eta(a.data_nascita) + ')' : ''],
+    ['Codice stalla / microchip', a.codice_stalla],
+    ['Costo d\'acquisto', euro(a.costo_acquisto) || ''],
+    ['Spesa totale sostenuta', euro(spesaTotale(a)) || '']
+  ].filter(([, v]) => v);
+
+  return `<section class="animale">
+    <h1>Registro sanitario — ${pul(a.nome)}</h1>
+    <table class="anagrafica">
+      ${dati.map(([k, v]) => `<tr><td>${pul(k)}</td><td><b>${pul(v)}</b></td></tr>`).join('')}
+    </table>
+    ${a.note ? `<p><i>${pul(a.note)}</i></p>` : ''}
+    <h2>Interventi e trattamenti (${iv.length})</h2>
+    ${iv.length ? `<table>
+      <thead><tr><th>Data</th><th>Tipo</th><th>Descrizione</th><th>Veterinario</th><th class="dx">Costo</th><th>Da rifare</th></tr></thead>
+      <tbody>
+        ${iv.map((x) => `<tr>
+          <td>${pul(gg(x.data_evento))}</td>
+          <td>${pul(x.tipo_evento || '')}</td>
+          <td>${pul(x.descrizione || '')}</td>
+          <td>${pul(x.nome_veterinario || '')}</td>
+          <td class="dx">${pul(euro(x.costo) || '')}</td>
+          <td>${pul(gg(x.prossimo_il))}</td>
+        </tr>`).join('')}
+        <tr class="totale"><td colspan="4">Totale interventi</td>
+          <td class="dx">${pul(euro(totInterventi) || '0,00 €')}</td><td></td></tr>
+      </tbody></table>`
+      : '<p>Nessun intervento registrato.</p>'}
+    <p class="piede">Stampato il ${pul(OGGI.split('-').reverse().join('/'))} · Fattoria Tasks</p>
+  </section>`;
+}
+
+function stampaRegistro(idAnimale) {
+  const lista = idAnimale ? animali.filter((a) => a.id === idAnimale) : animali;
+  if (!lista.length) { avvisa('Nessun animale da stampare', true); return; }
+  $('#foglio').innerHTML = lista.map(fogliettoAnimale).join('');
+  avvisa(idAnimale ? 'Preparo la stampa…' : 'Preparo il registro completo…');
+  // il ritardo lascia al telefono il tempo di disegnare il foglio
+  setTimeout(() => { try { window.print(); } catch (e) { avvisa('Stampa non disponibile su questo dispositivo', true); } }, 250);
 }
 
 function scarica(nomeFile, contenuto, tipo) {
@@ -1754,7 +1874,17 @@ document.addEventListener('click', (ev) => {
   if (el.dataset.io)      { io = el.dataset.io; localStorage.setItem('fattoria_io', io); disegnaImpostazioni(); disegna(); return; }
   if (el.dataset.animale) { apriAnimale(el.dataset.animale); return; }
   if (el.dataset.intervento) { apriIntervento(el.dataset.intervento); return; }
-  if (el.dataset.imposta) { leggiCampi(); mod[el.dataset.imposta] = el.dataset.valore; disegnaPannello(); return; }
+  if (el.dataset.imposta) {
+    leggiCampi();
+    mod[el.dataset.imposta] = el.dataset.valore;
+    // "quando va rifatto": traduco la scelta in una data vera
+    if (el.dataset.imposta === 'prossimo') {
+      const p = PROSSIMI.find((x) => x.v === el.dataset.valore);
+      mod.prossimo_il = (p && p.mesi) ? spostaMesi(mod.data_evento || OGGI, p.mesi) : '';
+    }
+    disegnaPannello();
+    return;
+  }
 
   const id = el.dataset.id;
   switch (el.dataset.azione) {
@@ -1779,6 +1909,8 @@ document.addEventListener('click', (ev) => {
     case 'nuovo-contatto':   apriNuovo('Contatto'); return;
     case 'nuovo-intervento': apriNuovo('Intervento'); return;
     case 'modifica-animale': apriModificaAnimale(animaleAperto); return;
+    case 'stampa-animale':   stampaRegistro(animaleAperto); return;
+    case 'stampa-tutti':     stampaRegistro(null); return;
     case 'elimina-animale':
       if (el.dataset.armato !== '1') { el.dataset.armato = '1'; el.textContent = '⚠️ Tocca di nuovo: elimina anche gli interventi'; return; }
       { const x = animaleAperto; chiudiPannello(); elimina('animali', x); } return;
