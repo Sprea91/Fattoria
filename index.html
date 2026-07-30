@@ -494,7 +494,9 @@ function etichetteDi(t) {
   if (t.priorita === 'Alta' && t.stato !== 'Completato') out.push('<span class="etichetta et-alta">🔥 Alta</span>');
   if (t.scadenza && t.stato !== 'Completato') {
     const n = giorniDaOggi(t.scadenza);
-    out.push(`<span class="etichetta ${n < 0 ? 'et-ritardo' : n === 0 ? 'et-oggi' : ''}">📅 ${pul(etichettaData(t.scadenza))}</span>`);
+    // l'orario, se c'è, sta dentro la stessa etichetta della data
+    const quando = pul(etichettaData(t.scadenza)) + (t.ora ? ' · ore ' + pul(t.ora) : '');
+    out.push(`<span class="etichetta ${n < 0 ? 'et-ritardo' : n === 0 ? 'et-oggi' : ''}">${t.ora ? '🕐' : '📅'} ${quando}</span>`);
   }
   return out.join('');
 }
@@ -510,6 +512,10 @@ const perUrgenza = (a, b) => {
   const da = a.scadenza ? giorniDaOggi(a.scadenza) : 9e5;
   const db = b.scadenza ? giorniDaOggi(b.scadenza) : 9e5;
   if (da !== db) return da - db;
+  // stesso giorno: prima chi ha un orario (in ordine cronologico), poi chi non l'ha
+  if (a.ora && b.ora && a.ora !== b.ora) return a.ora < b.ora ? -1 : 1;
+  if (a.ora && !b.ora) return -1;
+  if (!a.ora && b.ora) return 1;
   const r = { Alta: 0, Media: 1, Bassa: 2 };
   const pa = r[a.priorita] ?? 1, pb = r[b.priorita] ?? 1;
   if (pa !== pb) return pa - pb;
@@ -529,6 +535,7 @@ const spesaTotale = (an) => Number(an.costo_acquisto || 0)
    ========================================================================== */
 function avvisiCorrenti() {
   const v = [];
+  const conOra = (t) => t.titolo + (t.ora ? ' (ore ' + t.ora + ')' : '');
   const ritardo = iLavori().filter((t) => t.stato !== 'Completato' && t.scadenza && giorniDaOggi(t.scadenza) < 0);
   const oggiSc  = iLavori().filter((t) => t.stato !== 'Completato' && t.scadenza === OGGI);
   const domani  = iLavori().filter((t) => t.stato !== 'Completato' && t.scadenza === fraGiorni(1));
@@ -537,17 +544,17 @@ function avvisiCorrenti() {
   const daComprare = laSpesa().filter((t) => t.stato !== 'Completato');
 
   if (ritardo.length) v.push({ ico: '⛔', testo: `${ritardo.length} ${ritardo.length === 1 ? 'lavoro in ritardo' : 'lavori in ritardo'}`,
-    dettaglio: ritardo.slice(0, 3).map((t) => t.titolo).join(' · '), vista: 'lavori', forte: true });
+    dettaglio: ritardo.slice(0, 3).map(conOra).join(' · '), vista: 'lavori', forte: true });
   if (oggiSc.length) v.push({ ico: '📅', testo: `${oggiSc.length} in scadenza oggi`,
-    dettaglio: oggiSc.slice(0, 3).map((t) => t.titolo).join(' · '), vista: 'oggi' });
+    dettaglio: oggiSc.slice(0, 3).map(conOra).join(' · '), vista: 'oggi' });
   if (inCorso.length) v.push({ ico: '🔄', testo: `${inCorso.length} ${inCorso.length === 1 ? 'lavoro iniziato' : 'lavori iniziati'} e non finiti`,
-    dettaglio: inCorso.slice(0, 3).map((t) => t.titolo).join(' · '), vista: 'lavori' });
+    dettaglio: inCorso.slice(0, 3).map(conOra).join(' · '), vista: 'lavori' });
   if (rtMancanti.length) v.push({ ico: '☀️', testo: `${rtMancanti.length} routine da fare oggi`,
     dettaglio: rtMancanti.slice(0, 4).map((t) => t.titolo).join(' · '), vista: 'oggi' });
   if (daComprare.length) v.push({ ico: '🛒', testo: `${daComprare.length} ${daComprare.length === 1 ? 'articolo da comprare' : 'articoli da comprare'}`,
     dettaglio: daComprare.slice(0, 4).map((t) => t.titolo).join(' · '), vista: 'spesa' });
   if (domani.length) v.push({ ico: '🌅', testo: `${domani.length} in scadenza domani`,
-    dettaglio: domani.slice(0, 3).map((t) => t.titolo).join(' · '), vista: 'oggi' });
+    dettaglio: domani.slice(0, 3).map(conOra).join(' · '), vista: 'oggi' });
   return v;
 }
 
@@ -1048,7 +1055,7 @@ async function elimina(coll, id) {
 function apriNuovo(tipo, scadenza) {
   modo = 'nuovo'; idAperto = null; tipoAperto = tipo; fotoScelta.dati = null;
   mod = { titolo: '', categoria: 'Animali',
-          assegnato_a: io, priorita: 'Media', stato: 'Da fare', scadenza: scadenza || '', note: '',
+          assegnato_a: io, priorita: 'Media', stato: 'Da fare', scadenza: scadenza || '', ora: '', note: '',
           specie: 'Bovino', razza: '', data_nascita: '', codice_stalla: '', costo_acquisto: '',
           tipo_evento: 'Visita veterinaria', data_evento: OGGI, descrizione: '', nome_veterinario: '', costo: '',
           ruolo: 'Veterinario', telefono: '', extra: false };
@@ -1060,7 +1067,8 @@ function apriModifica(id) {
   modo = 'modifica'; idAperto = id; tipoAperto = t.tipo || 'Lavoro'; fotoScelta.dati = null;
   mod = { titolo: t.titolo || '', categoria: t.categoria || 'Altro',
           assegnato_a: t.assegnato_a || 'Io', priorita: t.priorita || 'Media', stato: t.stato || 'Da fare',
-          scadenza: t.scadenza || '', note: t.note || '', foto_url: t.foto_url || null, extra: true };
+          scadenza: t.scadenza || '', ora: t.ora || '', avevaOra: !!t.ora,
+          note: t.note || '', foto_url: t.foto_url || null, extra: true };
   disegnaPannello(); apriPannello();
 }
 
@@ -1092,7 +1100,7 @@ function chiudiPannello() {
 function leggiCampi() {
   const g = (id) => { const e = $(id); return e ? e.value : undefined; };
   const v = {
-    titolo: g('#m-titolo'), note: g('#m-note'), scadenza: g('#m-scadenza'),
+    titolo: g('#m-titolo'), note: g('#m-note'), scadenza: g('#m-scadenza'), ora: g('#m-ora'),
     razza: g('#m-razza'), data_nascita: g('#m-nascita'), codice_stalla: g('#m-codice'),
     costo_acquisto: g('#m-costo-acquisto'), descrizione: g('#m-descrizione'),
     nome_veterinario: g('#m-veterinario'), costo: g('#m-costo'), data_evento: g('#m-data-evento'),
@@ -1212,6 +1220,13 @@ function disegnaPannello() {
                   .map(([l, v]) => `<button type="button" class="past flex-1" aria-pressed="${mod.scadenza === v}" data-imposta="scadenza" data-valore="${v}">${l}</button>`).join('')}
               </div>
               <input id="m-scadenza" type="date" class="campo mt-2" value="${pul(mod.scadenza)}"></div>
+            <div><label class="didascalia" for="m-ora">Orario dell'appuntamento (se serve)</label>
+              <div class="flex gap-2 mt-1.5">
+                <input id="m-ora" type="time" class="campo flex-1" value="${pul(mod.ora || '')}">
+                ${mod.ora ? '<button type="button" class="bot bot-chiaro" data-imposta="ora" data-valore="">Togli</button>' : ''}
+              </div>
+              <p class="text-xs font-semibold mt-1" style="color:var(--inchiostro2)">
+                Lascialo vuoto se è un lavoro da fare "in giornata".</p></div>
             <div><span class="didascalia">Priorità</span><div class="flex gap-2 mt-1.5">${pastiglie(PRIORITA, mod.priorita, 'priorita')}</div></div>`;
       if (!nuovo) h += `<div><span class="didascalia">Stato</span><div class="flex gap-2 mt-1.5">${pastiglie(STATI, mod.stato, 'stato')}</div></div>`;
     }
@@ -1286,6 +1301,12 @@ async function salva() {
       riga.scadenza = mod.scadenza || null;
       riga.stato = mod.stato;
       riga.completato_il = mod.stato === 'Completato' ? new Date().toISOString() : null;
+      // L'orario viene inviato solo se serve davvero: così l'app continua a
+      // funzionare anche se la colonna `ora` non è ancora stata aggiunta.
+      if (mod.ora) riga.ora = mod.ora;
+      else if (mod.avevaOra) riga.ora = null;          // l'orario c'era ed è stato togliato
+      if (!mod.scadenza) riga.ora = mod.avevaOra ? null : undefined;
+      if (riga.ora === undefined) delete riga.ora;
     }
     if (k === 'Nota')  riga.assegnato_a = io;
     if (k === 'Spesa') riga.assegnato_a = 'Tutti';
@@ -1307,7 +1328,11 @@ async function salva() {
       chiudiPannello(); disegna(); avvisa('Modifiche salvate');
     }
   } catch (e) {
-    avvisa('Non salvato: ' + (e.message || e), true);
+    const m = (e && e.message) || String(e);
+    if (/\bora\b/.test(m) && /column|colonna|schema cache/i.test(m)) {
+      avvisa('Per usare l\'orario devi aggiungere la colonna: apri l\'SQL Editor di Supabase ed esegui '
+             + 'alter table public.attivita add column if not exists ora text;', true);
+    } else avvisa('Non salvato: ' + m, true);
     if (bot) { bot.disabled = false; disegnaPannello(); }
   }
 }
@@ -1318,9 +1343,21 @@ async function salva() {
 function googleCalendar(id) {
   const t = attivita.find((x) => x.id === id);
   if (!t || !t.scadenza) { avvisa('Serve una scadenza', true); return; }
-  const g = t.scadenza.replace(/-/g, '');
-  const dopo = new Date(t.scadenza); dopo.setDate(dopo.getDate() + 1);
-  const g2 = isoDi(dopo).replace(/-/g, '');
+  let g, g2;
+  if (t.ora && /^\d{2}:\d{2}/.test(t.ora)) {
+    // con orario: appuntamento di un'ora, non evento di giornata intera
+    const [hh, mm] = t.ora.split(':').map(Number);
+    const inizio = new Date(t.scadenza + 'T00:00:00');
+    inizio.setHours(hh, mm, 0, 0);
+    const fine = new Date(inizio.getTime() + 3600000);
+    const f = (d) => isoDi(d).replace(/-/g, '') + 'T'
+      + String(d.getHours()).padStart(2, '0') + String(d.getMinutes()).padStart(2, '0') + '00';
+    g = f(inizio); g2 = f(fine);
+  } else {
+    g = t.scadenza.replace(/-/g, '');
+    const dopo = new Date(t.scadenza); dopo.setDate(dopo.getDate() + 1);
+    g2 = isoDi(dopo).replace(/-/g, '');
+  }
   const dett = [t.note, t.categoria ? 'Categoria: ' + t.categoria : '', 'Chi: ' + t.assegnato_a,
                 'Stato: ' + t.stato].filter(Boolean).join('\n');
   const url = 'https://calendar.google.com/calendar/render?action=TEMPLATE'

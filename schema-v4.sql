@@ -60,12 +60,16 @@ create table if not exists public.attivita (
   stato                text        not null default 'Da fare',  -- Da fare | In corso | Completato
   note                 text,
   foto_url             text,
+  ora                  text,        -- orario dell'appuntamento "HH:MM" (opzionale)
   routine_giornaliera  boolean     not null default false,
   ultimo_completamento date,
   completato_il        timestamptz,
   creato_il            timestamptz not null default now(),
   ordine               int         not null default 0
 );
+
+-- orario dell'appuntamento: aggiunta anche sulle tabelle già esistenti
+alter table public.attivita add column if not exists ora text;
 
 create index if not exists attivita_tipo_idx     on public.attivita (tipo);
 create index if not exists attivita_scadenza_idx on public.attivita (scadenza);
