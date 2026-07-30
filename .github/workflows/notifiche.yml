@@ -27,7 +27,7 @@ jobs:
       - name: Preparo Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Installo la libreria per le notifiche
         run: npm install web-push@3.6.7 --no-save --no-audit --no-fund

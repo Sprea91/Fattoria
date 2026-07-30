@@ -13,7 +13,9 @@ const SUPABASE_URL = process.env.SUPABASE_URL || 'https://aiowitawkzyohycsxkxi.s
 const SUPABASE_ANON = process.env.SUPABASE_ANON || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpb3dpdGF3a3p5b2h5Y3N4a3hpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzMjgwNjMsImV4cCI6MjEwMDkwNDA2M30.w2PA_VHPZc-2LQJHy__yK73XnxVwGDOwKyiYQN5klXE';
 const VAPID_PUBBLICA = process.env.VAPID_PUBBLICA
   || 'BOoKI-xfJkU6tRnNaXKpO99FBDOwkOj61WoO1E2zxi9wOgb5dHvcqvjJgu7pl0eWSqwFkqyzU_rG25hQAmfCmvs';
-const VAPID_PRIVATA = process.env.VAPID_PRIVATA || '';
+// trim: se il segreto viene incollato con un fine riga o uno spazio in coda,
+// web-push lo rifiuta ("must be a URL safe Base 64")
+const VAPID_PRIVATA = (process.env.VAPID_PRIVATA || '').trim().replace(/[^A-Za-z0-9\-_]/g, '');
 const CONTATTO = process.env.VAPID_CONTATTO || 'mailto:cqindustrializzazione@medacta.ch';
 const FORZA = String(process.env.FORZA || '').toLowerCase() === 'true';
 const INDIRIZZO_APP = process.env.INDIRIZZO_APP || 'https://sprea91.github.io/Fattoria/';
@@ -86,6 +88,11 @@ function componiMessaggio(attivita, oggi) {
 async function principale() {
   if (!VAPID_PRIVATA) {
     console.error('Manca il segreto VAPID_PRIVATA: impostalo nelle impostazioni del repository.');
+    process.exit(1);
+  }
+  if (VAPID_PRIVATA.length !== 43) {
+    console.error(`La chiave privata ha ${VAPID_PRIVATA.length} caratteri invece di 43: `
+      + 'probabilmente è stata incollata con caratteri di troppo. Reimposta il segreto VAPID_PRIVATA.');
     process.exit(1);
   }
   webpush.setVapidDetails(CONTATTO, VAPID_PUBBLICA, VAPID_PRIVATA);
