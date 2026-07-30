@@ -18,6 +18,9 @@ const VAPID_PUBBLICA = process.env.VAPID_PUBBLICA
 const VAPID_PRIVATA = (process.env.VAPID_PRIVATA || '').trim().replace(/[^A-Za-z0-9\-_]/g, '');
 const CONTATTO = process.env.VAPID_CONTATTO || 'mailto:cqindustrializzazione@medacta.ch';
 const FORZA = String(process.env.FORZA || '').toLowerCase() === 'true';
+// Ora italiana in cui va spedito il riassunto. Le due pianificazioni nel
+// workflow (una per l'ora legale, una per l'ora solare) puntano a questa.
+const ORA_INVIO = Number(process.env.ORA_INVIO || 7);
 const INDIRIZZO_APP = process.env.INDIRIZZO_APP || 'https://sprea91.github.io/Fattoria/';
 
 const intestazioni = {
@@ -101,9 +104,10 @@ async function principale() {
   console.log(`In Italia sono le ${String(ora).padStart(2, '0')}:${String(minuto).padStart(2, '0')} del ${giorno}`);
 
   // Le due pianificazioni coprono ora solare e ora legale: invio solo a quella
-  // che in Italia corrisponde alle 6 del mattino.
-  if (!FORZA && ora !== 6) {
-    console.log('Non è l\'ora giusta in Italia: non invio (l\'altra pianificazione ci pensera).');
+  // che in Italia corrisponde all'ora scelta.
+  if (!FORZA && ora !== ORA_INVIO) {
+    console.log(`Non è l'ora giusta in Italia (attesa ${ORA_INVIO}, sono le ${ora}): `
+      + 'non invio, ci pensa l\'altra pianificazione.');
     return;
   }
 

@@ -5,8 +5,8 @@ name: Notifiche del mattino
 # in quel caso, così non arrivano due notifiche.
 on:
   schedule:
-    - cron: '30 4 * * *'   # 06:30 in Italia con ora legale
-    - cron: '30 5 * * *'   # 06:30 in Italia con ora solare
+    - cron: '30 5 * * *'   # 07:30 in Italia con ora legale (estate)
+    - cron: '30 6 * * *'   # 07:30 in Italia con ora solare (inverno)
   workflow_dispatch:        # pulsante per provare quando vuoi
 
 permissions:
