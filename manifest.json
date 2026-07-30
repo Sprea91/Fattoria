@@ -1,0 +1,23 @@
+{
+  "name": "Fattoria Tasks",
+  "short_name": "Fattoria",
+  "description": "Lavori, animali, registro e spesa della fattoria",
+  "lang": "it",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E6D8BC",
+  "theme_color": "#8FA583",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "./icona-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icona-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icona-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Lista della spesa", "url": "./#spesa", "icons": [{ "src": "./icona-192.png", "sizes": "192x192" }] },
+    { "name": "Animali", "url": "./#animali", "icons": [{ "src": "./icona-192.png", "sizes": "192x192" }] }
+  ]
+}

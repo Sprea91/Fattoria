@@ -20,6 +20,10 @@
 <meta name="apple-mobile-web-app-title" content="Fattoria">
 <title>Fattoria Tasks</title>
 
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icona-192.png">
+<link rel="apple-touch-icon" href="./icona-192.png">
+
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 
@@ -260,6 +264,10 @@
 const SUPABASE_URL      = 'https://aiowitawkzyohycsxkxi.supabase.co';
 const SUPABASE_ANON_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpb3dpdGF3a3p5b2h5Y3N4a3hpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzMjgwNjMsImV4cCI6MjEwMDkwNDA2M30.w2PA_VHPZc-2LQJHy__yK73XnxVwGDOwKyiYQN5klXE';
 const CONTENITORE_FOTO   = 'farm-photos';
+
+// Chiave pubblica per le notifiche (non è un segreto: la privata sta nei
+// GitHub Secrets e serve solo a chi invia).
+const CHIAVE_PUSH = 'BOoKI-xfJkU6tRnNaXKpO99FBDOwkOj61WoO1E2zxi9wOgb5dHvcqvjJgu7pl0eWSqwFkqyzU_rG25hQAmfCmvs';
 /* ========================================================================== */
 
 const CONFIGURATO = /^https:\/\/[a-z0-9-]+\.supabase\.(co|in)\/?$/i.test(SUPABASE_URL.trim())
@@ -282,6 +290,8 @@ let attivita   = [];
 let animali    = [];
 let interventi = [];
 let contatti   = [];
+let iscrizioni = [];              // dispositivi che ricevono le notifiche
+let regSW      = null;            // service worker registrato
 let vista       = 'oggi';
 let filtroMiei  = 'tutti';
 let filtroReg   = 'Tutti';
@@ -361,7 +371,8 @@ function eta(nascita) {
    ========================================================================== */
 let sb = null, canale = null;
 const CHIAVE_LOCALE = 'fattoria_v4';
-const TABELLE = { attivita: 'attivita', animali: 'animali', interventi: 'interventi_animali', contatti: 'contatti' };
+const TABELLE = { attivita: 'attivita', animali: 'animali', interventi: 'interventi_animali',
+                  contatti: 'contatti', iscrizioni: 'iscrizioni_push' };
 
 const archivioLocale = {
   leggi() { try { return JSON.parse(localStorage.getItem(CHIAVE_LOCALE)) || null; } catch { return null; } },
@@ -379,7 +390,8 @@ const archivioLocale = {
       };
       this.scrivi(d);
     }
-    return { attivita: d.attivita || [], animali: d.animali || [], interventi: d.interventi || [], contatti: d.contatti || [] };
+    return { attivita: d.attivita || [], animali: d.animali || [], interventi: d.interventi || [],
+             contatti: d.contatti || [], iscrizioni: d.iscrizioni || [] };
   },
   async inserisci(coll, riga) {
     const d = this.leggi() || { attivita: [], animali: [], interventi: [], contatti: [] };
@@ -397,6 +409,12 @@ const archivioLocale = {
     if (coll === 'animali') d.interventi = (d.interventi || []).filter((x) => x.animale_id !== id);
     this.scrivi(d);
   },
+  async salvaIscrizione(riga) {
+    const d = this.leggi() || {};
+    d.iscrizioni = (d.iscrizioni || []).filter((x) => x.endpoint !== riga.endpoint);
+    const r = { id: crypto.randomUUID(), creato_il: new Date().toISOString(), ...riga };
+    d.iscrizioni.push(r); this.scrivi(d); return r;
+  },
   async caricaFoto(blob, dataUrl) { return dataUrl; }
 };
 
@@ -409,7 +427,15 @@ const archivioRemoto = {
       sb.from(TABELLE.contatti).select('*').order('nome')
     ]);
     for (const r of [a, an, iv, co]) if (r.error) throw r.error;
-    return { attivita: a.data || [], animali: an.data || [], interventi: iv.data || [], contatti: co.data || [] };
+    // le iscrizioni alle notifiche sono facoltative: se la tabella non c'è
+    // ancora, l'app deve funzionare comunque
+    let isc = [];
+    try {
+      const r = await sb.from(TABELLE.iscrizioni).select('*').order('creato_il');
+      if (!r.error) isc = r.data || [];
+    } catch (e) {}
+    return { attivita: a.data || [], animali: an.data || [], interventi: iv.data || [],
+             contatti: co.data || [], iscrizioni: isc };
   },
   async inserisci(coll, riga) {
     const { data, error } = await sb.from(TABELLE[coll]).insert(riga).select().single();
@@ -423,6 +449,11 @@ const archivioRemoto = {
     const { error } = await sb.from(TABELLE[coll]).delete().eq('id', id);
     if (error) throw error;
   },
+  async salvaIscrizione(riga) {
+    const { data, error } = await sb.from(TABELLE.iscrizioni)
+      .upsert(riga, { onConflict: 'endpoint' }).select().single();
+    if (error) throw error; return data;
+  },
   async caricaFoto(blob) {
     const nome = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
     const { error } = await sb.storage.from(CONTENITORE_FOTO).upload(nome, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
@@ -432,7 +463,114 @@ const archivioRemoto = {
 };
 
 let archivio = archivioLocale;
-const elenco = { attivita: () => attivita, animali: () => animali, interventi: () => interventi, contatti: () => contatti };
+const elenco = { attivita: () => attivita, animali: () => animali, interventi: () => interventi,
+                 contatti: () => contatti, iscrizioni: () => iscrizioni };
+
+/* ==========================================================================
+   NOTIFICHE — iscrizione del telefono
+   ========================================================================== */
+const daBase64 = (s) => {
+  const riempi = '='.repeat((4 - s.length % 4) % 4);
+  const b = atob((s + riempi).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(b, (c) => c.charCodeAt(0));
+};
+
+const suIPhone = () => /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const appInstallata = () => window.matchMedia('(display-mode: standalone)').matches
+  || window.navigator.standalone === true;
+
+function statoNotifiche() {
+  if (!('serviceWorker' in navigator)) return 'non-supportate';
+  if (suIPhone() && !appInstallata()) return 'iphone-da-installare';
+  if (!('PushManager' in window) || !('Notification' in window)) return 'non-supportate';
+  if (Notification.permission === 'denied') return 'negate';
+  if (iscrizioneDiQuestoDispositivo()) return 'attive';
+  return 'da-attivare';
+}
+
+let endpointLocale = localStorage.getItem('fattoria_endpoint') || null;
+const iscrizioneDiQuestoDispositivo = () => endpointLocale
+  && iscrizioni.some((x) => x.endpoint === endpointLocale);
+
+function descriviDispositivo() {
+  const ua = navigator.userAgent;
+  const sistema = /Android/.test(ua) ? 'Android' : suIPhone() ? 'iPhone'
+    : /Windows/.test(ua) ? 'Windows' : /Mac/.test(ua) ? 'Mac' : 'altro';
+  return sistema + ' · ' + io;
+}
+
+async function registraServiceWorker() {
+  if (!('serviceWorker' in navigator)) return null;
+  try {
+    regSW = await navigator.serviceWorker.register('./sw.js', { scope: './' });
+    await navigator.serviceWorker.ready;
+    return regSW;
+  } catch (e) { return null; }
+}
+
+async function attivaNotifiche() {
+  const s = statoNotifiche();
+  if (s === 'iphone-da-installare') {
+    avvisa('Su iPhone devi prima aggiungere l\'app alla schermata Home (pulsante Condividi di Safari), poi riaprirla da lì.', true);
+    return;
+  }
+  if (s === 'non-supportate') { avvisa('Questo browser non gestisce le notifiche.', true); return; }
+  if (s === 'negate') {
+    avvisa('Le notifiche sono bloccate nelle impostazioni del browser per questo sito: sbloccale da lì e riprova.', true);
+    return;
+  }
+  try {
+    const permesso = await Notification.requestPermission();
+    if (permesso !== 'granted') { avvisa('Permesso non concesso.', true); disegnaImpostazioni(); return; }
+    const reg = regSW || await registraServiceWorker();
+    if (!reg) { avvisa('Service worker non registrato: serve il file sw.js accanto all\'app.', true); return; }
+
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true, applicationServerKey: daBase64(CHIAVE_PUSH)
+    });
+    const j = sub.toJSON();
+    const riga = { endpoint: j.endpoint, chiave_p256dh: j.keys.p256dh, chiave_auth: j.keys.auth,
+                   dispositivo: descriviDispositivo(), persona: io };
+    const salvata = await archivio.salvaIscrizione(riga);
+    endpointLocale = j.endpoint;
+    localStorage.setItem('fattoria_endpoint', endpointLocale);
+    iscrizioni = iscrizioni.filter((x) => x.endpoint !== j.endpoint).concat([salvata || riga]);
+    avvisa('✓ Notifiche attivate su questo telefono');
+    disegnaImpostazioni();
+  } catch (e) {
+    avvisa('Attivazione non riuscita: ' + (e.message || e), true);
+  }
+}
+
+async function spegniNotifiche() {
+  try {
+    const reg = regSW || (('serviceWorker' in navigator) ? await navigator.serviceWorker.getRegistration() : null);
+    const sub = reg && await reg.pushManager.getSubscription();
+    const ep = (sub && sub.endpoint) || endpointLocale;
+    if (sub) await sub.unsubscribe();
+    const riga = iscrizioni.find((x) => x.endpoint === ep);
+    if (riga) { try { await archivio.elimina('iscrizioni', riga.id); } catch (e) {} }
+    iscrizioni = iscrizioni.filter((x) => x.endpoint !== ep);
+    endpointLocale = null; localStorage.removeItem('fattoria_endpoint');
+    avvisa('Notifiche spente su questo telefono');
+    disegnaImpostazioni();
+  } catch (e) { avvisa('Non riuscito: ' + (e.message || e), true); }
+}
+
+async function provaNotifica() {
+  if (!('Notification' in window)) { avvisa('Notifiche non disponibili', true); return; }
+  if (Notification.permission !== 'granted') { avvisa('Prima attiva le notifiche', true); return; }
+  const reg = regSW || await navigator.serviceWorker.getRegistration();
+  if (!reg) { avvisa('Service worker non attivo', true); return; }
+  const avvisi = avvisiCorrenti();
+  const corpo = avvisi.length ? avvisi.slice(0, 3).map((a) => a.ico + ' ' + a.testo).join('\n')
+                             : 'Nessun avviso: tutto in ordine.';
+  if (reg.active) reg.active.postMessage({ tipo: 'prova-notifica', corpo });
+  else reg.showNotification('🚜 Fattoria — prova', { body: corpo, icon: './icona-192.png' });
+  avvisa('Notifica di prova inviata');
+}
 
 /* ==========================================================================
    FOTO — sempre dalla fotocamera o dalla galleria, mai un indirizzo da incollare
@@ -1053,6 +1191,7 @@ async function elimina(coll, id) {
     if (coll === 'animali') { animali = animali.filter((x) => x.id !== id); interventi = interventi.filter((x) => x.animale_id !== id); }
     if (coll === 'interventi') interventi = interventi.filter((x) => x.id !== id);
     if (coll === 'contatti') contatti = contatti.filter((x) => x.id !== id);
+    if (coll === 'iscrizioni') iscrizioni = iscrizioni.filter((x) => x.id !== id);
     disegna(); avvisa('Eliminato');
   } catch (e) { avvisa('Non eliminato: ' + (e.message || e), true); }
 }
@@ -1407,6 +1546,49 @@ function backupCsv() {
 /* ==========================================================================
    IMPOSTAZIONI
    ========================================================================== */
+function bloccoNotifiche() {
+  const s = statoNotifiche();
+  const altri = iscrizioni.filter((x) => x.endpoint !== endpointLocale);
+  let corpo = '';
+
+  if (s === 'attive') {
+    corpo = `<p class="mt-1 font-bold" style="color:var(--verde)">✓ Attive su questo telefono</p>
+      <p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">
+        Ogni mattina alle 6:30 arriva il riassunto della giornata: scadenze, appuntamenti e cose da comprare.</p>
+      <div class="flex gap-2 mt-2">
+        <button class="bot bot-chiaro flex-1" data-azione="prova-notifica">🔔 Prova adesso</button>
+        <button class="bot bot-rosso" data-azione="spegni-notifiche">Spegni</button>
+      </div>`;
+  } else if (s === 'iphone-da-installare') {
+    corpo = `<p class="mt-1 font-bold" style="color:#8A4B10">Su iPhone serve un passaggio in più</p>
+      <p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">
+        Apple permette le notifiche solo alle app installate. In Safari premi il pulsante
+        <b>Condividi</b> (il quadrato con la freccia in su), scegli <b>Aggiungi alla schermata Home</b>,
+        poi apri l'app da quell'icona e torna qui.</p>`;
+  } else if (s === 'negate') {
+    corpo = `<p class="mt-1 font-bold" style="color:var(--allarme)">Bloccate dal browser</p>
+      <p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">
+        Hai negato il permesso in passato. Sbloccalo dalle impostazioni del sito (icona del lucchetto
+        accanto all'indirizzo) e poi riprova.</p>`;
+  } else if (s === 'non-supportate') {
+    corpo = `<p class="mt-1 font-bold">Non disponibili su questo browser</p>`;
+  } else {
+    corpo = `<p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">
+        Ricevi ogni mattina il riassunto della giornata sul telefono, anche senza aprire l'app.</p>
+      <button class="bot bot-verde bot-largo mt-2" data-azione="attiva-notifiche">🔔 Attiva le notifiche</button>`;
+  }
+
+  const elencoAltri = altri.length
+    ? `<p class="text-xs font-semibold mt-2" style="color:var(--inchiostro2)">Altri dispositivi che le ricevono:</p>
+       <div class="space-y-1.5 mt-1">${altri.map((x) => `<div class="flex items-center gap-2">
+           <span class="etichetta flex-1">📱 ${pul(x.dispositivo || 'dispositivo')}</span>
+           <button class="bot bot-rosso bot-piccolo" data-azione="elimina-iscrizione" data-id="${x.id}">🗑</button>
+         </div>`).join('')}</div>`
+    : '';
+
+  return `<div><span class="didascalia">Notifiche</span>${corpo}${elencoAltri}</div>`;
+}
+
 function apriImpostazioni() { modo = 'impostazioni'; disegnaImpostazioni(); apriPannello(); }
 function disegnaImpostazioni() {
   $('#pannello-titolo').textContent = 'Impostazioni';
@@ -1437,6 +1619,8 @@ function disegnaImpostazioni() {
 
     <div><span class="didascalia">Contatti utili</span>
       <button class="bot bot-chiaro w-full mt-2" data-azione="apri-contatti">📞 Apri rubrica (${contatti.length})</button></div>
+
+    ${bloccoNotifiche()}
 
     <div><span class="didascalia">Backup dei dati</span>
       <p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">
@@ -1498,6 +1682,10 @@ document.addEventListener('click', (ev) => {
     case 'google-calendar': googleCalendar(idAperto); return;
     case 'backup-json': backupJson(); return;
     case 'backup-csv':  backupCsv(); return;
+    case 'attiva-notifiche': attivaNotifiche(); return;
+    case 'spegni-notifiche': spegniNotifiche(); return;
+    case 'prova-notifica':   provaNotifica(); return;
+    case 'elimina-iscrizione': elimina('iscrizioni', id).then(() => disegnaImpostazioni()); return;
     case 'elimina-nel-pannello':
       if (el.dataset.armato !== '1') { el.dataset.armato = '1'; el.textContent = '⚠️ Tocca di nuovo per eliminare'; return; }
       {
@@ -1573,6 +1761,7 @@ async function ricarica(conMessaggio) {
     const d = await archivio.carica();
     if (mia !== seqCarico) return;
     attivita = d.attivita; animali = d.animali; interventi = d.interventi; contatti = d.contatti;
+    iscrizioni = d.iscrizioni || [];
     caricoRotto = false; disegna();
     if (conMessaggio) avvisa('Dati aggiornati');
   } catch (e) {
@@ -1591,29 +1780,29 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('online',  () => { if (CONFIGURATO) ricarica(false); });
 window.addEventListener('offline', () => statoRete('● Offline', '#8C1D18', '#fff'));
 
-function installaIcona() {
-  let icona = '';
-  try {
-    const c = document.createElement('canvas'); c.width = c.height = 192;
-    const x = c.getContext('2d');
-    x.fillStyle = '#8FA583'; x.fillRect(0, 0, 192, 192);
-    x.font = '118px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillText('🚜', 96, 104);
-    icona = c.toDataURL('image/png');
-  } catch (e) {}
-  if (icona) for (const rel of ['apple-touch-icon', 'icon']) {
-    const l = document.createElement('link'); l.rel = rel; l.href = icona; document.head.appendChild(l);
-  }
+// Se manifest.json o le icone non ci sono (per esempio aprendo il file da solo,
+// senza gli altri file accanto), ne creo una versione al volo così l'app resta
+// installabile e con la sua icona.
+function riservaIconaEManifest() {
+  const c = document.createElement('canvas'); c.width = c.height = 192;
+  const x = c.getContext('2d');
+  x.fillStyle = '#8FA583'; x.fillRect(0, 0, 192, 192);
+  x.fillStyle = '#E6D8BC'; x.fillRect(0, 138, 192, 54);
+  x.font = '100px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText('🚜', 96, 84);
+  const icona = c.toDataURL('image/png');
+  document.querySelectorAll('link[rel="icon"],link[rel="apple-touch-icon"]').forEach((l) => { l.href = icona; });
   const man = { name: 'Fattoria Tasks', short_name: 'Fattoria', start_url: './', display: 'standalone',
                 orientation: 'portrait', background_color: '#E6D8BC', theme_color: '#8FA583',
-                icons: icona ? [{ src: icona, sizes: '192x192', type: 'image/png', purpose: 'any' }] : [] };
-  const l = document.createElement('link');
-  l.rel = 'manifest'; l.href = 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(man));
-  document.head.appendChild(l);
+                icons: [{ src: icona, sizes: '192x192', type: 'image/png', purpose: 'any' }] };
+  const l = document.querySelector('link[rel="manifest"]');
+  if (l) l.href = 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(man));
 }
 
 (async function avvio() {
-  installaIcona();
+  fetch('./icona-192.png', { method: 'HEAD' }).then((r) => { if (!r.ok) riservaIconaEManifest(); })
+    .catch(() => riservaIconaEManifest());
+  registraServiceWorker();
   const d = new Date(); calA = d.getFullYear(); calM = d.getMonth(); calSel = OGGI;
   $('#bot-io').textContent = io === 'Anna' ? 'A' : 'I';
 

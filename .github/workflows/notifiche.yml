@@ -1,0 +1,40 @@
+name: Notifiche del mattino
+
+# Due orari perché GitHub lavora in UTC: uno vale per l'ora legale, l'altro
+# per l'ora solare. Lo script controlla che in Italia siano le 6 e invia solo
+# in quel caso, così non arrivano due notifiche.
+on:
+  schedule:
+    - cron: '30 4 * * *'   # 06:30 in Italia con ora legale
+    - cron: '30 5 * * *'   # 06:30 in Italia con ora solare
+  workflow_dispatch:        # pulsante per provare quando vuoi
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notifiche
+  cancel-in-progress: false
+
+jobs:
+  invia:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Scarico il codice
+        uses: actions/checkout@v4
+
+      - name: Preparo Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Installo la libreria per le notifiche
+        run: npm install web-push@3.6.7 --no-save --no-audit --no-fund
+
+      - name: Invio il riassunto della giornata
+        env:
+          VAPID_PRIVATA: ${{ secrets.VAPID_PRIVATA }}
+          # con il pulsante manuale invio sempre, senza aspettare le 6
+          FORZA: ${{ github.event_name == 'workflow_dispatch' }}
+        run: node scripts/invia-notifiche.js
