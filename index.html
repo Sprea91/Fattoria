@@ -345,7 +345,10 @@ const CONFIGURATO = /^https:\/\/[a-z0-9-]+\.supabase\.(co|in)\/?$/i.test(SUPABAS
                     && !/^INCOLLA_QUI/.test(SUPABASE_ANON_KEY.trim());
 
 const CATEGORIE = [{ v: 'Animali', e: '🐄' }, { v: 'Recinti', e: '🚧' }, { v: 'Macchine', e: '🚜' }, { v: 'Altro', e: '📌' }];
-const PERSONE   = ['Io', 'Anna', 'Tutti'];
+const PERSONE   = ['Stefano', 'Anna', 'Tutti'];
+// Prima l'utente si chiamava "Io". I dati vecchi restano leggibili: qualunque
+// "Io" salvato in passato viene mostrato e confrontato come "Stefano".
+const persona = (p) => (p === 'Io' ? 'Stefano' : (p || ''));
 const PRIORITA  = ['Alta', 'Media', 'Bassa'];
 const STATI     = ['Da fare', 'In corso', 'Completato'];
 // Ogni voce dice di quanto spostare la scadenza quando il lavoro viene finito.
@@ -387,7 +390,7 @@ let modoAccesso = 'entra';        // entra | recupera | nuova-password
 let vista       = 'oggi';
 let filtroMiei  = 'tutti';
 let filtroReg   = 'Tutti';
-let io          = localStorage.getItem('fattoria_io') || 'Io';
+let io          = persona(localStorage.getItem('fattoria_io')) || 'Stefano';
 let caricoRotto = false;
 let seqCarico   = 0;
 
@@ -496,7 +499,7 @@ const archivioLocale = {
     if (!d) {
       d = {
         attivita: [['Cibo animali', 'Tutti', 'Animali'], ['Acqua animali', 'Tutti', 'Animali'],
-                   ['Raccolta uova', 'Anna', 'Animali'], ['Controllo recinti', 'Io', 'Recinti']]
+                   ['Raccolta uova', 'Anna', 'Animali'], ['Controllo recinti', 'Stefano', 'Recinti']]
           .map((r, i) => ({ id: crypto.randomUUID(), tipo: 'Routine', titolo: r[0], assegnato_a: r[1],
             categoria: r[2], routine_giornaliera: true, priorita: 'Media',
             stato: 'Da fare', ordine: i + 1, creato_il: new Date().toISOString() })),
@@ -708,11 +711,18 @@ async function esci() {
 }
 
 /* ---------- chi sei: lo prendo dall'account, non dal telefono ---------- */
-const nomeDaAccount = () => (utente && utente.user_metadata && utente.user_metadata.nome) || null;
+const nomeDaAccount = () => persona((utente && utente.user_metadata && utente.user_metadata.nome) || '') || null;
 
 function allineaIdentita() {
   const n = nomeDaAccount();
   if (n && n !== io) { io = n; localStorage.setItem('fattoria_io', io); }
+  // se sull'account era rimasto il vecchio "Io", lo riscrivo una volta sola
+  const grezzo = utente && utente.user_metadata && utente.user_metadata.nome;
+  if (utente && grezzo === 'Io' && sb) {
+    sb.auth.updateUser({ data: { nome: 'Stefano' } })
+      .then((r) => { if (r && r.data && r.data.user) utente = r.data.user; })
+      .catch(() => {});
+  }
 }
 
 async function impostaIdentita(nome) {
@@ -949,7 +959,7 @@ function etichetteDi(t) {
   if (t.stato === 'In corso')   out.push('<span class="etichetta et-corso">▶ In corso</span>');
   if (t.stato === 'Completato') out.push('<span class="etichetta et-fatto">✓ Fatto</span>');
   if (t.categoria) out.push(`<span class="etichetta">${emojiCat(t.categoria)} ${pul(t.categoria)}</span>`);
-  out.push(`<span class="etichetta et-chi">👤 ${pul(t.assegnato_a)}</span>`);
+  out.push(`<span class="etichetta et-chi">👤 ${pul(persona(t.assegnato_a))}</span>`);
   if (t.priorita === 'Alta' && t.stato !== 'Completato') out.push('<span class="etichetta et-alta">🔥 Alta</span>');
   if (t.ricorrenza && t.ricorrenza !== 'Mai') out.push(`<span class="etichetta">🔁 ${pul(t.ricorrenza.replace(/^Ogni /, 'ogni '))}</span>`);
   if (t.scadenza && t.stato !== 'Completato') {
@@ -975,7 +985,7 @@ const tagFoto = (url, classe = 'mt-2') => url
    SELEZIONI
    ========================================================================== */
 const routineFatta = (t) => t.ultimo_completamento === OGGI;
-const eMio = (t) => filtroMiei === 'tutti' || t.assegnato_a === io || t.assegnato_a === 'Tutti';
+const eMio = (t) => filtroMiei === 'tutti' || persona(t.assegnato_a) === io || t.assegnato_a === 'Tutti';
 const perUrgenza = (a, b) => {
   const da = a.scadenza ? giorniDaOggi(a.scadenza) : 9e5;
   const db = b.scadenza ? giorniDaOggi(b.scadenza) : 9e5;
@@ -1085,7 +1095,7 @@ function rigaRoutine(t) {
       <button type="button" class="riga-apri" data-apri="${t.id}">
         <span class="riga-tit">${pul(t.titolo)}</span>
         <span class="mt-1 flex flex-wrap gap-1.5">
-          <span class="etichetta et-chi">👤 ${pul(t.assegnato_a)}</span>
+          <span class="etichetta et-chi">👤 ${pul(persona(t.assegnato_a))}</span>
         </span>
       </button>
       <span class="text-xl shrink-0" style="color:var(--inchiostro2)">›</span>
@@ -1427,7 +1437,7 @@ function disegnaDiario() {
               </span>
             </span>
             <span class="shrink-0 text-right">
-              <span class="etichetta et-chi">${pul(r.chi || '?')}</span>
+              <span class="etichetta et-chi">${pul(persona(r.chi) || '?')}</span>
               <span class="block text-xs font-bold mt-1" style="color:var(--inchiostro2)">${pul(ora)}</span>
             </span>
           </div>`;
@@ -1487,7 +1497,7 @@ function disegna() {
   $$('#barra .voce').forEach((b) => {
     if (b.dataset.vista === vista) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
-  $('#bot-io').textContent = io === 'Anna' ? 'A' : 'I';
+  $('#bot-io').textContent = (io || '?').charAt(0).toUpperCase();
   $('#etichetta-aggiungi').textContent = ETICHETTA_BOT[vista] || 'Attività';
   aggiornaPallino();
 
@@ -1666,7 +1676,7 @@ function apriModifica(id) {
   const t = attivita.find((x) => x.id === id); if (!t) return;
   modo = 'modifica'; idAperto = id; tipoAperto = t.tipo || 'Lavoro'; fotoScelta.dati = null;
   mod = { titolo: t.titolo || '', categoria: t.categoria || 'Altro',
-          assegnato_a: t.assegnato_a || 'Io', priorita: t.priorita || 'Media', stato: t.stato || 'Da fare',
+          assegnato_a: persona(t.assegnato_a) || 'Stefano', priorita: t.priorita || 'Media', stato: t.stato || 'Da fare',
           scadenza: t.scadenza || '', ora: t.ora || '', avevaOra: !!t.ora,
           ricorrenza: t.ricorrenza || 'Mai', avevaRicorrenza: !!t.ricorrenza,
           note: t.note || '', foto_url: t.foto_url || null, extra: true };
@@ -2191,7 +2201,7 @@ function bloccoChiSei() {
         Lo ricordo sul tuo account ${pul(utente.email || '')}, così non te lo chiedo più
         e vale anche se cambi telefono.</p>
       <div class="flex gap-2 mt-2">
-        <button class="past flex-1" data-sono="Io">Sono Io</button>
+        <button class="past flex-1" data-sono="Stefano">Sono Stefano</button>
         <button class="past flex-1" data-sono="Anna">Sono Anna</button>
       </div></div>`;
   }
@@ -2199,8 +2209,8 @@ function bloccoChiSei() {
     <p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">
       Senza accesso lo scegli a mano su questo telefono. Facendo l'accesso viene riconosciuto da sé.</p>
     <div class="flex gap-2 mt-2">
-      <button class="past flex-1" data-io="Io"   aria-pressed="${io === 'Io'}">Io</button>
-      <button class="past flex-1" data-io="Anna" aria-pressed="${io === 'Anna'}">Anna</button>
+      <button class="past flex-1" data-io="Stefano" aria-pressed="${io === 'Stefano'}">Stefano</button>
+      <button class="past flex-1" data-io="Anna"    aria-pressed="${io === 'Anna'}">Anna</button>
     </div></div>`;
 }
 
@@ -2288,7 +2298,7 @@ function disegnaImpostazioni() {
             </span>
             <button type="button" class="flex-1 text-left min-w-0" data-apri="${t.id}">
               <span class="block font-bold truncate">${pul(t.titolo)} <span style="color:var(--inchiostro2)">›</span></span>
-              <span class="block text-xs font-semibold mt-0.5" style="color:var(--inchiostro2)">${pul(t.assegnato_a)}</span>
+              <span class="block text-xs font-semibold mt-0.5" style="color:var(--inchiostro2)">${pul(persona(t.assegnato_a))}</span>
             </button>
             <button class="bot bot-rosso bot-piccolo shrink-0" data-azione="elimina" data-id="${t.id}">🗑</button>
           </div>`).join('') || '<p class="text-sm font-semibold">Nessuna routine.</p>'}
@@ -2538,7 +2548,7 @@ function riservaIconaEManifest() {
     .catch(() => riservaIconaEManifest());
   registraServiceWorker();
   const d = new Date(); calA = d.getFullYear(); calM = d.getMonth(); calSel = OGGI;
-  $('#bot-io').textContent = io === 'Anna' ? 'A' : 'I';
+  $('#bot-io').textContent = (io || '?').charAt(0).toUpperCase();
 
   if (CONFIGURATO && window.supabase) {
     sb = window.supabase.createClient(SUPABASE_URL.trim().replace(/\/$/, ''), SUPABASE_ANON_KEY.trim());
