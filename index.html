@@ -152,6 +152,11 @@
   .griglia-animali { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
   .foto-animale { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: .75rem;
                   border: 1.5px solid var(--bordo); background: #EFEADC; display: block; }
+  /* barre del riepilogo spese */
+  .barra { height: 10px; border-radius: 999px; background: #E4DCC6; overflow: hidden; }
+  .barra > span { display: block; height: 100%; background: var(--verde); border-radius: 999px; }
+  .barra-cure > span { background: #B45309; }
+
   .senza-foto { width: 100%; aspect-ratio: 4 / 3; border-radius: .75rem; border: 1.5px dashed var(--bordo);
                 background: #F2EDE0; display: grid; place-items: center; font-size: 2.25rem; }
   /* riquadro per sistemare l'inquadratura trascinando col dito */
@@ -1314,7 +1319,10 @@ function disegnaAnimali() {
           <span class="etichetta">🐾 ${animali.length} ${animali.length === 1 ? 'animale' : 'animali'}</span>
           <span class="etichetta et-soldi">💰 spesa totale ${pul(euro(totale) || '—')}</span>
         </div>
-        <button class="bot bot-chiaro w-full" data-azione="stampa-tutti">🖨️ Stampa registro di tutti gli animali</button>
+        <div class="flex gap-2">
+          <button class="bot bot-chiaro flex-1" data-azione="riepilogo-spese">💰 Spese</button>
+          <button class="bot bot-chiaro flex-1" data-azione="stampa-tutti">🖨️ Stampa registro</button>
+        </div>
         <div class="griglia-animali">
           ${animali.map((a) => `
             <button type="button" class="scheda scheda-fitta tocca text-left" data-animale="${a.id}">
@@ -1457,6 +1465,156 @@ function disegnaRegistro() {
     : `<p class="scheda text-center font-bold py-8">Nessuna nota${filtroReg !== 'Tutti' ? ' in "' + filtroReg + '"' : ''}.<br>
         <span class="font-semibold text-sm">Col pulsante ＋ annoti animali e attrezzature, anche con foto.</span></p>`;
   $('#corpo-registro').innerHTML = h;
+}
+
+/* ==========================================================================
+   RIEPILOGO SPESE
+   Usa i costi già registrati: acquisto degli animali e costo degli interventi.
+   ========================================================================== */
+function contiSpese() {
+  const acquisti = animali.reduce((s, a) => s + Number(a.costo_acquisto || 0), 0);
+  const cure = interventi.reduce((s, x) => s + Number(x.costo || 0), 0);
+
+  const perAnimale = animali.map((a) => ({
+    nome: a.nome, specie: a.specie,
+    acquisto: Number(a.costo_acquisto || 0),
+    cure: interventiDi(a.id).reduce((s, x) => s + Number(x.costo || 0), 0),
+    totale: spesaTotale(a)
+  })).sort((x, y) => y.totale - x.totale);
+
+  const perTipo = {};
+  interventi.forEach((x) => {
+    const t = x.tipo_evento || 'Altro';
+    perTipo[t] = (perTipo[t] || 0) + Number(x.costo || 0);
+  });
+
+  const perAnno = {};
+  interventi.forEach((x) => {
+    const anno = String(x.data_evento || '').slice(0, 4) || '—';
+    perAnno[anno] = (perAnno[anno] || 0) + Number(x.costo || 0);
+  });
+
+  const conCosto = interventi.filter((x) => Number(x.costo || 0) > 0).length;
+  return { acquisti, cure, totale: acquisti + cure, perAnimale, perTipo, perAnno, conCosto };
+}
+
+function apriRiepilogoSpese() {
+  modo = 'spese';
+  $('#pannello-titolo').textContent = 'Riepilogo spese';
+  const c = contiSpese();
+
+  if (!c.totale) {
+    $('#pannello-corpo').innerHTML = `<div class="scheda text-center py-10">
+        <div class="text-5xl">💰</div>
+        <p class="mt-2 font-black text-lg">Nessuna spesa registrata</p>
+        <p class="mt-1 text-sm font-semibold" style="color:var(--inchiostro2)">
+          I conti si riempiono da sé quando metti il costo d'acquisto di un animale
+          o il costo di un intervento.</p></div>`;
+    apriPannello();
+    return;
+  }
+
+  const barra = (valore, massimo, cure) => `<div class="barra ${cure ? 'barra-cure' : ''}">
+      <span style="width:${massimo ? Math.max(2, Math.round(valore / massimo * 100)) : 0}%"></span></div>`;
+  const maxAnimale = c.perAnimale.length ? c.perAnimale[0].totale : 0;
+  const tipiOrdinati = Object.entries(c.perTipo).sort((a, b) => b[1] - a[1]);
+  const maxTipo = tipiOrdinati.length ? tipiOrdinati[0][1] : 0;
+  const anniOrdinati = Object.entries(c.perAnno).sort((a, b) => String(b[0]).localeCompare(String(a[0])));
+
+  $('#pannello-corpo').innerHTML = `
+    <div class="scheda text-center">
+      <span class="didascalia">Speso in tutto</span>
+      <p class="text-3xl font-black mt-1">${pul(euro(c.totale))}</p>
+      <div class="flex gap-2 mt-3">
+        <div class="flex-1">
+          <p class="text-xs font-black" style="color:var(--inchiostro2)">ACQUISTI</p>
+          <p class="font-black">${pul(euro(c.acquisti))}</p>
+        </div>
+        <div class="flex-1">
+          <p class="text-xs font-black" style="color:var(--inchiostro2)">CURE</p>
+          <p class="font-black" style="color:#B45309">${pul(euro(c.cure))}</p>
+        </div>
+      </div>
+      <p class="text-xs font-semibold mt-2" style="color:var(--inchiostro2)">
+        ${animali.length} ${animali.length === 1 ? 'animale' : 'animali'} ·
+        ${c.conCosto} ${c.conCosto === 1 ? 'intervento con costo' : 'interventi con costo'}</p>
+    </div>
+
+    <section>
+      <h3 class="titolo-sez">🐾 Per animale</h3>
+      <div class="space-y-2">
+        ${c.perAnimale.map((a) => `<div class="scheda scheda-fitta">
+            <div class="flex items-baseline gap-2">
+              <span class="font-bold flex-1 truncate">${EMOJI_SPECIE[a.specie] || '🐾'} ${pul(a.nome)}</span>
+              <span class="font-black">${pul(euro(a.totale))}</span>
+            </div>
+            ${barra(a.totale, maxAnimale)}
+            <p class="text-xs font-semibold mt-1" style="color:var(--inchiostro2)">
+              acquisto ${pul(euro(a.acquisto) || '0,00 €')} · cure ${pul(euro(a.cure) || '0,00 €')}</p>
+          </div>`).join('')}
+      </div>
+    </section>
+
+    ${tipiOrdinati.length ? `<section>
+      <h3 class="titolo-sez">🩺 Per tipo di intervento</h3>
+      <div class="space-y-2">
+        ${tipiOrdinati.map(([t, v]) => `<div class="scheda scheda-fitta">
+            <div class="flex items-baseline gap-2">
+              <span class="font-bold flex-1 truncate">${pul(t)}</span>
+              <span class="font-black">${pul(euro(v))}</span>
+            </div>
+            ${barra(v, maxTipo, true)}
+          </div>`).join('')}
+      </div>
+    </section>` : ''}
+
+    ${anniOrdinati.length ? `<section>
+      <h3 class="titolo-sez">📅 Cure per anno</h3>
+      <div class="space-y-1.5">
+        ${anniOrdinati.map(([anno, v]) => `<div class="flex items-baseline gap-2 px-1">
+            <span class="font-bold flex-1">${pul(anno)}</span>
+            <span class="font-black">${pul(euro(v))}</span>
+          </div>`).join('')}
+      </div>
+      <p class="text-xs font-semibold mt-2 px-1" style="color:var(--inchiostro2)">
+        Gli acquisti non compaiono per anno: non registriamo la data di acquisto.
+        Se ti serve, la aggiungo.</p>
+    </section>` : ''}
+
+    <button class="bot bot-chiaro bot-largo" data-azione="stampa-spese">🖨️ Stampa il riepilogo</button>`;
+  apriPannello();
+}
+
+function stampaSpese() {
+  const c = contiSpese();
+  const righe = c.perAnimale.map((a) => `<tr>
+      <td>${pul(a.nome)}</td><td>${pul(a.specie || '')}</td>
+      <td class="dx">${pul(euro(a.acquisto) || '')}</td>
+      <td class="dx">${pul(euro(a.cure) || '')}</td>
+      <td class="dx"><b>${pul(euro(a.totale) || '')}</b></td>
+    </tr>`).join('');
+  $('#foglio').innerHTML = `<section class="animale">
+      <h1>Riepilogo spese</h1>
+      <table class="anagrafica">
+        <tr><td>Speso in tutto</td><td><b>${pul(euro(c.totale))}</b></td></tr>
+        <tr><td>di cui acquisti</td><td>${pul(euro(c.acquisti))}</td></tr>
+        <tr><td>di cui cure</td><td>${pul(euro(c.cure))}</td></tr>
+      </table>
+      <h2>Per animale</h2>
+      <table>
+        <thead><tr><th>Nome</th><th>Specie</th><th class="dx">Acquisto</th><th class="dx">Cure</th><th class="dx">Totale</th></tr></thead>
+        <tbody>${righe}</tbody>
+      </table>
+      <h2>Per tipo di intervento</h2>
+      <table>
+        <thead><tr><th>Tipo</th><th class="dx">Spesa</th></tr></thead>
+        <tbody>${Object.entries(c.perTipo).sort((a, b) => b[1] - a[1])
+          .map(([t, v]) => `<tr><td>${pul(t)}</td><td class="dx">${pul(euro(v))}</td></tr>`).join('')}</tbody>
+      </table>
+      <p class="piede">Stampato il ${pul(OGGI.split('-').reverse().join('/'))} · Fattoria Tasks</p>
+    </section>`;
+  avvisa('Preparo la stampa…');
+  setTimeout(() => { try { window.print(); } catch (e) { avvisa('Stampa non disponibile', true); } }, 250);
 }
 
 function apriContatti() {
@@ -2480,6 +2638,7 @@ function disegnaImpostazioni() {
     <div><span class="didascalia">Storico e diario</span>
       <p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">
         Chi ha fatto cosa e quando, e l'elenco di tutto ciò che è stato completato.</p>
+      <button class="bot bot-chiaro w-full mt-2" data-azione="riepilogo-spese">💰 Riepilogo spese</button>
       <button class="bot bot-chiaro w-full mt-2" data-vista="storico">📔 Apri storico e diario${diario.length ? ' (' + diario.length + ' voci)' : ''}</button>
     </div>
 
@@ -2576,6 +2735,8 @@ document.addEventListener('click', (ev) => {
     case 'modifica-animale': apriModificaAnimale(animaleAperto); return;
     case 'stampa-animale':   stampaRegistro(animaleAperto); return;
     case 'stampa-tutti':     stampaRegistro(null); return;
+    case 'riepilogo-spese':  apriRiepilogoSpese(); return;
+    case 'stampa-spese':     stampaSpese(); return;
     case 'elimina-animale':
       if (el.dataset.armato !== '1') { el.dataset.armato = '1'; el.textContent = '⚠️ Tocca di nuovo: elimina anche gli interventi'; return; }
       { const x = animaleAperto; chiudiPannello(); elimina('animali', x); } return;
