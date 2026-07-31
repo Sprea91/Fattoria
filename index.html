@@ -1056,6 +1056,8 @@ const leNote    = () => attivita.filter((t) => t.tipo === 'Nota').sort((a, b) =>
 const laSpesa   = () => attivita.filter((t) => t.tipo === 'Spesa');
 const interventiDi = (idAn) => interventi.filter((x) => x.animale_id === idAn)
   .sort((a, b) => String(b.data_evento).localeCompare(String(a.data_evento)));
+const noteDi = (idAn) => leNote().filter((t) => t.animale_id === idAn);
+const nomeAnimale = (id) => { const a = animali.find((x) => x.id === id); return a ? a.nome : ''; };
 const spesaTotale = (an) => Number(an.costo_acquisto || 0)
   + interventiDi(an.id).reduce((s, x) => s + Number(x.costo || 0), 0);
 
@@ -1382,6 +1384,23 @@ function apriAnimale(id) {
       </div>
     </section>
 
+    <section>
+      <h3 class="titolo-sez">📓 Note su ${pul(a.nome)} <span class="conta">${noteDi(id).length}</span></h3>
+      <div class="space-y-3">
+        ${noteDi(id).length ? noteDi(id).map((t) => `
+          <article class="scheda tocca" data-apri="${t.id}" role="button" tabindex="0">
+            <div class="flex items-start gap-2">
+              <h4 class="flex-1 font-bold leading-tight">${pul(t.titolo)}</h4>
+              <span class="etichetta shrink-0">${pul(oraLunga(t.creato_il))}</span>
+            </div>
+            ${t.note ? `<p class="mt-1.5 text-sm font-semibold" style="color:var(--inchiostro2)">${pul(t.note)}</p>` : ''}
+            ${tagFoto(t.foto_url)}
+          </article>`).join('')
+        : '<p class="scheda text-center font-bold py-5">Nessuna nota su questo animale</p>'}
+      </div>
+      <button class="bot bot-chiaro w-full mt-3" data-azione="nuova-nota-animale">➕ Aggiungi nota su ${pul(a.nome)}</button>
+    </section>
+
     <button class="bot bot-chiaro bot-largo" data-azione="stampa-animale">🖨️ Stampa registro sanitario</button>
     <button class="bot bot-chiaro bot-largo" data-azione="modifica-animale">✏️ Modifica dati animale</button>
     <button class="bot bot-rosso bot-largo" data-azione="elimina-animale">🗑 Elimina animale</button>`;
@@ -1430,6 +1449,7 @@ function disegnaRegistro() {
         </div>
         <div class="flex flex-wrap gap-1.5 mt-2">
           ${t.categoria ? `<span class="etichetta">${emojiCat(t.categoria)} ${pul(t.categoria)}</span>` : ''}
+          ${t.animale_id && nomeAnimale(t.animale_id) ? `<span class="etichetta">🐾 ${pul(nomeAnimale(t.animale_id))}</span>` : ''}
         </div>
         ${t.note ? `<p class="mt-2 text-sm font-semibold" style="color:var(--inchiostro2)">${pul(t.note)}</p>` : ''}
         ${tagFoto(t.foto_url)}
@@ -1755,7 +1775,7 @@ async function elimina(coll, id, silenzioso) {
    ========================================================================== */
 function apriNuovo(tipo, scadenza) {
   modo = 'nuovo'; idAperto = null; tipoAperto = tipo; fotoScelta.dati = null;
-  mod = { titolo: '', categoria: 'Animali', ricorrenza: 'Mai', momento: 'Mattina',
+  mod = { titolo: '', categoria: 'Animali', ricorrenza: 'Mai', momento: 'Mattina', animale_id: null,
           // di partenza il lavoro è di entrambi: chi lo prende lo prende
           assegnato_a: 'Tutti', priorita: 'Media', stato: 'Da fare', scadenza: scadenza || '', ora: '', note: '',
           specie: 'Bovino', razza: '', data_nascita: '', codice_stalla: '', costo_acquisto: '',
@@ -1773,6 +1793,7 @@ function apriModifica(id) {
           scadenza: t.scadenza || '', ora: t.ora || '', avevaOra: !!t.ora,
           ricorrenza: t.ricorrenza || 'Mai', avevaRicorrenza: !!t.ricorrenza,
           momento: momentoDi(t),
+          animale_id: t.animale_id || null, avevaAnimale: !!t.animale_id,
           note: t.note || '', foto_url: t.foto_url || null, extra: true };
   disegnaPannello(); apriPannello();
 }
@@ -1995,6 +2016,17 @@ function disegnaPannello() {
     h += `<div><span class="didascalia">${eNota ? 'Riguarda' : 'Cosa'}</span>
             <div class="flex flex-wrap gap-2 mt-1.5">${pastiglie(CATEGORIE, mod.categoria, 'categoria', '')}</div></div>`;
   }
+  // una nota può essere agganciata a un animale: così compare nella sua scheda
+  if (eNota && animali.length) {
+    h += `<div><span class="didascalia">Quale animale</span>
+      <div class="flex flex-wrap gap-2 mt-1.5">
+        <button type="button" class="past" aria-pressed="${!mod.animale_id}" data-animale-nota="">Nessuno</button>
+        ${animali.map((a) => `<button type="button" class="past" aria-pressed="${mod.animale_id === a.id}"
+            data-animale-nota="${a.id}">${EMOJI_SPECIE[a.specie] || '🐾'} ${pul(a.nome)}</button>`).join('')}
+      </div>
+      <p class="text-xs font-semibold mt-1" style="color:var(--inchiostro2)">
+        Collegandola a un animale la ritrovi nella sua carta d'identità e nella stampa del registro.</p></div>`;
+  }
   if (eLavoro || eRoutine) {
     h += `<div><span class="didascalia">Chi lo fa</span><div class="flex gap-2 mt-1.5">${pastiglie(PERSONE, mod.assegnato_a, 'assegnato_a')}</div></div>`;
   }
@@ -2133,7 +2165,12 @@ async function salva() {
       if (riga.ora === undefined) delete riga.ora;
     }
     if (k === 'Routine' && modo !== 'nuovo' && mod.momento && mod.momento !== MOMENTO_DOPPIO) riga.momento = mod.momento;
-    if (k === 'Nota')  riga.assegnato_a = io;
+    if (k === 'Nota') {
+      riga.assegnato_a = io;
+      // come per gli altri campi nuovi: inviato solo quando serve
+      if (mod.animale_id) riga.animale_id = mod.animale_id;
+      else if (mod.avevaAnimale) riga.animale_id = null;
+    }
     if (k === 'Spesa') riga.assegnato_a = 'Tutti';
     if (urlFoto) riga.foto_url = urlFoto;
 
@@ -2254,6 +2291,15 @@ function fogliettoAnimale(a) {
           <td class="dx">${pul(euro(totInterventi) || '0,00 €')}</td><td></td></tr>
       </tbody></table>`
       : '<p>Nessun intervento registrato.</p>'}
+    ${noteDi(a.id).length ? `<h2>Note (${noteDi(a.id).length})</h2>
+      <table>
+        <thead><tr><th>Data</th><th>Nota</th><th>Dettagli</th></tr></thead>
+        <tbody>${noteDi(a.id).slice().reverse().map((t) => `<tr>
+          <td>${pul(gg(String(t.creato_il).slice(0, 10)))}</td>
+          <td>${pul(t.titolo)}</td>
+          <td>${pul(t.note || '')}</td>
+        </tr>`).join('')}</tbody>
+      </table>` : ''}
     <p class="piede">Stampato il ${pul(OGGI.split('-').reverse().join('/'))} · Fattoria Tasks</p>
   </section>`;
 }
@@ -2454,7 +2500,7 @@ function disegnaImpostazioni() {
    EVENTI
    ========================================================================== */
 document.addEventListener('click', (ev) => {
-  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra],[data-scheda]');
+  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra],[data-scheda],[data-animale-nota]');
   if (!el) return;
 
   if (el.dataset.vista) {
@@ -2470,6 +2516,12 @@ document.addEventListener('click', (ev) => {
   if (el.dataset.sono)    { impostaIdentita(el.dataset.sono); return; }
   if (el.dataset.animale) { apriAnimale(el.dataset.animale); return; }
   if (el.dataset.intervento) { apriIntervento(el.dataset.intervento); return; }
+  if (el.hasAttribute('data-animale-nota')) {
+    leggiCampi();
+    mod.animale_id = el.dataset.animaleNota || null;
+    disegnaPannello();
+    return;
+  }
   if (el.dataset.inquadra) {
     leggiCampi();
     if (el.dataset.inquadra === 'intera') mod.foto_inquadratura = 'intera';
@@ -2518,6 +2570,9 @@ document.addEventListener('click', (ev) => {
     case 'giu-routine':      spostaRoutine(id, 1); return;
     case 'nuovo-contatto':   apriNuovo('Contatto'); return;
     case 'nuovo-intervento': apriNuovo('Intervento'); return;
+    case 'nuova-nota-animale':
+      { const rif = animaleAperto; apriNuovo('Nota'); mod.animale_id = rif; disegnaPannello(); }
+      return;
     case 'modifica-animale': apriModificaAnimale(animaleAperto); return;
     case 'stampa-animale':   stampaRegistro(animaleAperto); return;
     case 'stampa-tutti':     stampaRegistro(null); return;
