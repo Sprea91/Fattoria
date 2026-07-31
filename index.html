@@ -783,6 +783,41 @@ async function attivaNotifiche() {
   }
 }
 
+// Se il server scopre che un'iscrizione non vale più (il telefono ha fatto
+// pulizia, l'app è stata ricaricata da zero...) la cancella dal database.
+// Al primo avvio successivo ce ne accorgiamo e ci riscriviamo da soli, senza
+// chiedere di nuovo il permesso: altrimenti le notifiche smetterebbero in
+// silenzio e nessuno lo saprebbe fino al mattino sbagliato.
+async function riparaIscrizione() {
+  if (!CONFIGURATO || !('serviceWorker' in navigator) || !('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  if (!endpointLocale) return;                        // non era mai stato attivato qui
+  if (iscrizioni.some((x) => x.endpoint === endpointLocale)) return;   // tutto a posto
+
+  try {
+    const reg = regSW || await navigator.serviceWorker.getRegistration();
+    if (!reg) return;
+    // la vecchia iscrizione può essere quella scaduta: la sostituisco
+    const vecchia = await reg.pushManager.getSubscription();
+    if (vecchia) { try { await vecchia.unsubscribe(); } catch (e) {} }
+    const nuova = await reg.pushManager.subscribe({
+      userVisibleOnly: true, applicationServerKey: daBase64(CHIAVE_PUSH)
+    });
+    const j = nuova.toJSON();
+    const salvata = await archivio.salvaIscrizione({
+      endpoint: j.endpoint, chiave_p256dh: j.keys.p256dh, chiave_auth: j.keys.auth,
+      dispositivo: descriviDispositivo(), persona: io
+    });
+    endpointLocale = j.endpoint;
+    localStorage.setItem('fattoria_endpoint', endpointLocale);
+    iscrizioni = iscrizioni.filter((x) => x.endpoint !== j.endpoint).concat([salvata || {}]);
+    avvisa('🔔 Notifiche ricollegate su questo telefono');
+  } catch (e) {
+    // niente messaggi allarmanti: lo dico solo nelle impostazioni
+    console.log('Iscrizione non ripristinata: ' + (e.message || e));
+  }
+}
+
 async function spegniNotifiche() {
   try {
     const reg = regSW || (('serviceWorker' in navigator) ? await navigator.serviceWorker.getRegistration() : null);
@@ -2075,9 +2110,11 @@ function bloccoNotifiche() {
   let corpo = '';
 
   if (s === 'attive') {
+    const mia = iscrizioni.find((x) => x.endpoint === endpointLocale) || {};
     corpo = `<p class="mt-1 font-bold" style="color:var(--verde)">✓ Attive su questo telefono</p>
       <p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">
-        Ogni mattina verso le 7:30 arriva il riassunto della giornata: scadenze, appuntamenti e cose da comprare.</p>
+        Ogni mattina fra le 7:15 e le 9:30 arriva il riassunto della giornata: scadenze, appuntamenti e cose da comprare.
+        ${mia.ultimo_invio ? 'Ultimo arrivato: ' + pul(oraLunga(mia.ultimo_invio)) + '.' : 'Ancora nessuno ricevuto.'}</p>
       <div class="flex gap-2 mt-2">
         <button class="bot bot-chiaro flex-1" data-azione="prova-notifica">🔔 Prova adesso</button>
         <button class="bot bot-rosso" data-azione="spegni-notifiche">Spegni</button>
@@ -2413,6 +2450,7 @@ function riservaIconaEManifest() {
 
     await ricarica(false);
     avviaSincronia();
+    riparaIscrizione();          // se le notifiche erano decadute, si riattaccano
   } else {
     archivio = archivioLocale;
     statoRete('● Locale', '#F6D98A');
