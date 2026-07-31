@@ -11,6 +11,11 @@ const webpush = require('web-push');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://aiowitawkzyohycsxkxi.supabase.co';
 const SUPABASE_ANON = process.env.SUPABASE_ANON || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpb3dpdGF3a3p5b2h5Y3N4a3hpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzMjgwNjMsImV4cCI6MjEwMDkwNDA2M30.w2PA_VHPZc-2LQJHy__yK73XnxVwGDOwKyiYQN5klXE';
+// Chiave di servizio: serve solo quando i permessi del database sono chiusi.
+// Sta nei segreti del repository, non nel codice. Se manca si usa quella
+// pubblica, che basta finché i permessi restano aperti.
+const SERVIZIO = (process.env.SUPABASE_SERVIZIO || '').trim();
+const CHIAVE_LETTURA = SERVIZIO || SUPABASE_ANON;
 const VAPID_PUBBLICA = process.env.VAPID_PUBBLICA
   || 'BOoKI-xfJkU6tRnNaXKpO99FBDOwkOj61WoO1E2zxi9wOgb5dHvcqvjJgu7pl0eWSqwFkqyzU_rG25hQAmfCmvs';
 // trim: se il segreto viene incollato con un fine riga o uno spazio in coda,
@@ -26,8 +31,8 @@ const ORA_A   = Number(process.env.ORA_A   || 10);
 const INDIRIZZO_APP = process.env.INDIRIZZO_APP || 'https://sprea91.github.io/Fattoria/';
 
 const intestazioni = {
-  apikey: SUPABASE_ANON,
-  Authorization: 'Bearer ' + SUPABASE_ANON,
+  apikey: CHIAVE_LETTURA,
+  Authorization: 'Bearer ' + CHIAVE_LETTURA,
   'Content-Type': 'application/json'
 };
 
@@ -113,6 +118,7 @@ async function principale() {
 
   const { giorno, ora, minuto } = adessoInItalia();
   console.log(`In Italia sono le ${String(ora).padStart(2, '0')}:${String(minuto).padStart(2, '0')} del ${giorno}`);
+  console.log('Chiave usata per leggere: ' + (SERVIZIO ? 'di servizio (permessi chiusi)' : 'pubblica (permessi aperti)'));
 
   // Fuori dalla finestra non si invia: le pianificazioni coprono sia l'ora
   // legale sia quella solare, e quelle fuori orario non devono fare nulla.
