@@ -1087,17 +1087,16 @@ function schedaLavoro(t, azioni = true) {
   const fatto = t.stato === 'Completato';
   return `
     <article class="scheda tocca ${ritardo ? 'scheda-urgente' : ''} ${fatto ? 'scheda-fatta' : ''}" data-apri="${t.id}" role="button" tabindex="0">
-      <div class="flex items-start gap-2">
-        <h3 class="flex-1 font-black text-base leading-tight ${fatto ? 'line-through opacity-60' : ''}">${pul(t.titolo)}</h3>
-        ${azioni && !fatto ? `<span class="flex gap-1.5 shrink-0">
-             ${t.stato === 'Da fare' ? `<button class="bot bot-chiaro bot-piccolo px-2.5" data-azione="inizia" data-id="${t.id}" aria-label="Segna come iniziato">▶</button>` : ''}
-             <button class="bot bot-verde bot-piccolo" data-azione="finisci" data-id="${t.id}">✓ Fatto</button>
-           </span>`
-          : '<span class="text-xl shrink-0" style="color:var(--inchiostro2)">›</span>'}
-      </div>
+      <h3 class="font-black text-base leading-tight ${fatto ? 'line-through opacity-60' : ''}">${pul(t.titolo)}
+        <span class="font-bold" style="color:var(--inchiostro2)">›</span></h3>
       <div class="flex flex-wrap gap-1.5 mt-2">${etichetteDi(t)}</div>
       ${t.note ? `<p class="mt-2 text-sm font-semibold" style="color:var(--inchiostro2)">${pul(t.note)}</p>` : ''}
       ${tagFoto(t.foto_url)}
+      ${azioni && !fatto ? `<div class="flex gap-2 mt-3">
+           ${t.stato === 'Da fare'
+             ? `<button class="bot bot-chiaro flex-1" data-azione="inizia" data-id="${t.id}">▶ Inizia</button>` : ''}
+           <button class="bot bot-verde flex-1" data-azione="finisci" data-id="${t.id}">✓ Fatto</button>
+         </div>` : ''}
     </article>`;
 }
 
@@ -1586,7 +1585,7 @@ async function creaPromemoriaSanitario(idAnimale, tipoEvento, quando, descrizion
   try {
     metti('attivita', await archivio.inserisci('attivita', {
       tipo: 'Lavoro', titolo, categoria: 'Animali', priorita: 'Media',
-      assegnato_a: io, scadenza: quando, stato: 'Da fare',
+      assegnato_a: 'Tutti', scadenza: quando, stato: 'Da fare',
       note: [descrizione, 'Promemoria dal registro sanitario'].filter(Boolean).join(' · ')
     }));
     avvisa('📅 Promemoria per il ' + quando.split('-').reverse().join('/'));
@@ -1688,7 +1687,8 @@ async function elimina(coll, id) {
 function apriNuovo(tipo, scadenza) {
   modo = 'nuovo'; idAperto = null; tipoAperto = tipo; fotoScelta.dati = null;
   mod = { titolo: '', categoria: 'Animali', ricorrenza: 'Mai', momento: 'Mattina',
-          assegnato_a: io, priorita: 'Media', stato: 'Da fare', scadenza: scadenza || '', ora: '', note: '',
+          // di partenza il lavoro è di entrambi: chi lo prende lo prende
+          assegnato_a: 'Tutti', priorita: 'Media', stato: 'Da fare', scadenza: scadenza || '', ora: '', note: '',
           specie: 'Bovino', razza: '', data_nascita: '', codice_stalla: '', costo_acquisto: '',
           tipo_evento: 'Visita veterinaria', data_evento: OGGI, descrizione: '', nome_veterinario: '', costo: '',
           prossimo: 'Nessuno', prossimo_il: '',
