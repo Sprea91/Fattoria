@@ -2386,13 +2386,18 @@ async function ricarica(conMessaggio) {
   }
 }
 
-setInterval(() => { if (isoDi(new Date()) !== OGGI) location.reload(); }, 60000);
+// A mezzanotte le routine devono tornare tutte "da fare". Non serve azzerare
+// niente: si confronta la data dell'ultima spunta con quella di oggi. Però la
+// pagina aperta ha in memoria la data di ieri, quindi va ricaricata.
+const giornoCambiato = (adesso) => isoDi(adesso || new Date()) !== OGGI;
+
+setInterval(() => { if (giornoCambiato()) location.reload(); }, 60000);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
-  if (isoDi(new Date()) !== OGGI) { location.reload(); return; }
+  if (giornoCambiato()) { location.reload(); return; }
   if (CONFIGURATO) ricarica(false);
 });
-window.addEventListener('online',  () => { if (CONFIGURATO) ricarica(false); });
+window.addEventListener('online',  () => { if (CONFIGURATO) { ricarica(false); riparaIscrizione(); } });
 window.addEventListener('offline', () => statoRete('● Offline', '#8C1D18', '#fff'));
 
 // Se manifest.json o le icone non ci sono (per esempio aprendo il file da solo,
