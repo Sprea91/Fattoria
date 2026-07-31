@@ -356,10 +356,10 @@ const CONTENITORE_FOTO   = 'farm-photos';
 // GitHub Secrets e serve solo a chi invia).
 const CHIAVE_PUSH = 'BOoKI-xfJkU6tRnNaXKpO99FBDOwkOj61WoO1E2zxi9wOgb5dHvcqvjJgu7pl0eWSqwFkqyzU_rG25hQAmfCmvs';
 
-// Quando i permessi del database saranno chiusi, questo passa a true e l'app
-// non mostra nulla senza accesso. Per ora l'accesso c'è ma non è obbligatorio,
-// così si può provare senza rischiare di restare fuori.
-const ACCESSO_OBBLIGATORIO = false;
+// I permessi del database sono chiusi: senza accesso non si vede nulla.
+// Per tornare indietro: rimettere false qui ED eseguire
+// schema-riapri-permessi.sql nell'SQL Editor di Supabase.
+const ACCESSO_OBBLIGATORIO = true;
 /* ========================================================================== */
 
 const CONFIGURATO = /^https:\/\/[a-z0-9-]+\.supabase\.(co|in)\/?$/i.test(SUPABASE_URL.trim())
