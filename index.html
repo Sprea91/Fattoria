@@ -219,6 +219,28 @@
     #foglio .animale + .animale { page-break-before: always; }
     @page { margin: 14mm; }
   }
+  /* ---------- trascinamento laterale (swipe) ----------
+     Il contenitore ritaglia; il figlio "scorrevole" si sposta col dito.
+     touch-action: pan-y lascia libero lo scorrimento verticale della pagina e
+     cattura solo il movimento orizzontale. */
+  .swipe { position: relative; overflow: hidden; border-radius: 1.25rem; }
+  .swipe-fondo { position: absolute; inset: 0; display: flex; align-items: center;
+                 justify-content: space-between; padding: 0 1.25rem;
+                 font-size: 1.35rem; font-weight: 900; color: #fff;
+                 background: #B9AE93; border-radius: 1.25rem; }
+  .swipe[data-dir="dx"] .swipe-fondo { background: var(--verde); }
+  .swipe[data-dir="sx"] .swipe-fondo { background: var(--allarme); }
+  .swipe[data-dir="sx"][data-sx="inizia"] .swipe-fondo { background: #1D4ED8; }
+  .swipe-fondo .sx-eti { opacity: 0; }
+  .swipe-fondo .dx-eti { opacity: 0; }
+  .swipe[data-dir="dx"] .swipe-fondo .sx-eti { opacity: 1; }
+  .swipe[data-dir="sx"] .swipe-fondo .dx-eti { opacity: 1; }
+  .scorrevole { position: relative; touch-action: pan-y; will-change: transform; }
+  .swipe.pronto .swipe-fondo { filter: brightness(1.12); }
+
+  #annulla-azione { margin-left: .6rem; padding: .25rem .6rem; border-radius: .5rem;
+                    background: #FBF7EC; color: #20281A; font-weight: 900; font-size: .8125rem; }
+
   .pannello { animation: su .22s cubic-bezier(.2,.8,.2,1); }
   @keyframes su { from { transform: translateY(16px); opacity: .5 } to { transform: none; opacity: 1 } }
   [hidden] { display: none !important; }
@@ -941,11 +963,26 @@ $('#scegli-foto').addEventListener('change', async (ev) => {
    SERVIZI UI
    ========================================================================== */
 let timerMsg = null;
+let ripristina = null;          // cosa fare se l'utente tocca "Annulla"
+
 function avvisa(testo, errore = false) {
   const el = $('#messaggio');
+  ripristina = null;
   el.textContent = testo; el.style.background = errore ? '#8C1D18' : '#20281A'; el.hidden = false;
   clearTimeout(timerMsg);
   timerMsg = setTimeout(() => { el.hidden = true; }, errore ? 5000 : 2100);
+}
+
+// Messaggio con la possibilità di tornare indietro: serve per i gesti, dove
+// basta un movimento involontario per segnare qualcosa o cancellarlo.
+function avvisaAnnullabile(testo, comeTornareIndietro) {
+  const el = $('#messaggio');
+  ripristina = comeTornareIndietro;
+  el.style.background = '#20281A';
+  el.innerHTML = `<span>${pul(testo)}</span><button id="annulla-azione">Annulla</button>`;
+  el.hidden = false;
+  clearTimeout(timerMsg);
+  timerMsg = setTimeout(() => { el.hidden = true; ripristina = null; }, 6000);
 }
 function statoRete(testo, sfondo, colore) {
   const el = $('#stato-rete');
@@ -1082,27 +1119,51 @@ function apriAvvisi() {
 /* ==========================================================================
    SCHEDE ATTIVITÀ
    ========================================================================== */
+// Involucro per il trascinamento laterale. Le scritte del fondo dicono cosa
+// succede: quella a sinistra si scopre trascinando verso destra, e viceversa.
+function conSwipe(dentro, { id, dx, sx, etDx, etSx }) {
+  if (!dx && !sx) return dentro;
+  return `<div class="swipe" data-sw-id="${id}" data-dx="${dx || ''}" data-sx="${sx || ''}">
+      <div class="swipe-fondo" aria-hidden="true">
+        <span class="sx-eti">${etDx || ''}</span>
+        <span class="dx-eti">${etSx || ''}</span>
+      </div>
+      ${dentro}
+    </div>`;
+}
+
 function schedaLavoro(t, azioni = true) {
   const ritardo = t.stato !== 'Completato' && t.scadenza && giorniDaOggi(t.scadenza) < 0;
   const fatto = t.stato === 'Completato';
-  return `
-    <article class="scheda tocca ${ritardo ? 'scheda-urgente' : ''} ${fatto ? 'scheda-fatta' : ''}" data-apri="${t.id}" role="button" tabindex="0">
+  const scheda = `
+    <article class="scheda scorrevole tocca ${ritardo ? 'scheda-urgente' : ''} ${fatto ? 'scheda-fatta' : ''}" data-apri="${t.id}" role="button" tabindex="0">
       <h3 class="font-black text-base leading-tight ${fatto ? 'line-through opacity-60' : ''}">${pul(t.titolo)}
         <span class="font-bold" style="color:var(--inchiostro2)">›</span></h3>
       <div class="flex flex-wrap gap-1.5 mt-2">${etichetteDi(t)}</div>
       ${t.note ? `<p class="mt-2 text-sm font-semibold" style="color:var(--inchiostro2)">${pul(t.note)}</p>` : ''}
       ${tagFoto(t.foto_url)}
-      ${azioni && !fatto ? `<div class="flex gap-2 mt-3">
+      ${azioni && !fatto ? `<div class="flex gap-2 mt-3 justify-end">
            ${t.stato === 'Da fare'
-             ? `<button class="bot bot-chiaro flex-1" data-azione="inizia" data-id="${t.id}">▶ Inizia</button>` : ''}
-           <button class="bot bot-verde flex-1" data-azione="finisci" data-id="${t.id}">✓ Fatto</button>
+             ? `<button class="bot bot-chiaro bot-piccolo px-3" data-azione="inizia" data-id="${t.id}">▶ Inizia</button>` : ''}
+           <button class="bot bot-verde bot-piccolo" data-azione="finisci" data-id="${t.id}">✓ Fatto</button>
          </div>` : ''}
     </article>`;
+  if (fatto || !azioni) return scheda;
+  return conSwipe(scheda, { id: t.id, dx: 'finisci', sx: t.stato === 'Da fare' ? 'inizia' : '',
+                            etDx: '✓ Fatto', etSx: t.stato === 'Da fare' ? '▶ Inizia' : '' });
 }
 
 function rigaRoutine(t) {
+  const fatta = routineFatta(t);
+  return conSwipe(rigaRoutineDentro(t), {
+    id: t.id, dx: fatta ? '' : 'routine', sx: fatta ? 'routine' : '',
+    etDx: fatta ? '' : '✓ Fatto', etSx: fatta ? '↩ Da fare' : ''
+  });
+}
+
+function rigaRoutineDentro(t) {
   return `
-    <div class="riga ${routineFatta(t) ? 'riga-ok' : ''}">
+    <div class="riga scorrevole ${routineFatta(t) ? 'riga-ok' : ''}">
       <button type="button" class="cerchio" data-azione="routine" data-id="${t.id}"
               aria-label="${routineFatta(t) ? 'Annulla' : 'Segna come fatto'}">✓</button>
       <button type="button" class="riga-apri" data-apri="${t.id}">
@@ -1412,12 +1473,14 @@ function disegnaSpesa() {
   const da = s.filter((t) => t.stato !== 'Completato');
   const presi = s.filter((t) => t.stato === 'Completato')
     .sort((a, b) => String(b.completato_il).localeCompare(String(a.completato_il)));
-  const riga = (t) => `
-    <div class="riga ${t.stato === 'Completato' ? 'riga-ok' : ''}">
+  // Spesa: verso destra "comprato", verso sinistra elimina (con Annulla).
+  const riga = (t) => conSwipe(`
+    <div class="riga scorrevole ${t.stato === 'Completato' ? 'riga-ok' : ''}">
       <button type="button" class="cerchio" data-azione="spesa" data-id="${t.id}" aria-label="Preso">✓</button>
       <span class="riga-tit flex-1 min-w-0">${pul(t.titolo)}</span>
       <button type="button" class="text-xl px-2 shrink-0" data-azione="elimina" data-id="${t.id}" aria-label="Elimina">🗑</button>
-    </div>`;
+    </div>`, { id: t.id, dx: 'spesa', sx: 'elimina-spesa',
+               etDx: t.stato === 'Completato' ? '↩ In lista' : '🛒 Comprato', etSx: '🗑 Elimina' });
   let h = `<section><h2 class="titolo-sez">🛒 Da comprare <span class="conta">${da.length}</span></h2>
       <div class="space-y-2.5">${da.length ? da.map(riga).join('')
         : '<p class="scheda text-center font-bold py-6">Lista vuota</p>'}</div></section>`;
@@ -1615,20 +1678,22 @@ async function ripetiSeServe(id) {
   } catch (e) { avvisa('Ripetizione non creata: ' + (e.message || e), true); }
 }
 
-const spuntaRoutine = (id) => {
+// `silenzioso` serve ai gesti: là il messaggio lo mostra chi ha fatto il gesto,
+// insieme al pulsante Annulla, e non deve essere sovrascritto da questo.
+const spuntaRoutine = (id, silenzioso) => {
   const t = attivita.find((x) => x.id === id); if (!t) return;
   const su = routineFatta(t);
   cambia('attivita', id, su ? { ultimo_completamento: null, completato_il: null }
                             : { ultimo_completamento: OGGI, completato_il: new Date().toISOString() },
-         su ? 'Rimesso da fare' : '✓ Fatto');
+         silenzioso ? null : (su ? 'Rimesso da fare' : '✓ Fatto'));
   annota(su ? 'Rimesso' : 'Fatto', 'Routine', t.titolo, null, id);
 };
-const spuntaSpesa = (id) => {
+const spuntaSpesa = (id, silenzioso) => {
   const t = attivita.find((x) => x.id === id); if (!t) return;
   const fatto = t.stato === 'Completato';
   cambia('attivita', id, fatto ? { stato: 'Da fare', completato_il: null }
                                : { stato: 'Completato', completato_il: new Date().toISOString() },
-         fatto ? 'Rimesso in lista' : '✓ Comprato');
+         silenzioso ? null : (fatto ? 'Rimesso in lista' : '✓ Comprato'));
   annota(fatto ? 'Rimesso' : 'Comprato', 'Spesa', t.titolo, null, id);
 };
 async function svuotaComprati() {
@@ -1664,7 +1729,10 @@ async function spostaRoutine(id, direzione) {
 const NOME_OGGETTO = { attivita: 'Attività', animali: 'Animale', interventi: 'Intervento',
                        contatti: 'Contatto', iscrizioni: 'Dispositivo', diario: 'Diario' };
 
-async function elimina(coll, id) {
+// come elimina(), ma senza il messaggio: lo mostra il gesto, con Annulla
+async function eliminaSilenzioso(coll, id) { return elimina(coll, id, true); }
+
+async function elimina(coll, id, silenzioso) {
   try {
     // prendo il titolo prima di cancellare, altrimenti nel diario resta un buco
     const riga = (elenco[coll] ? elenco[coll]() : []).find((x) => x.id === id) || {};
@@ -1677,7 +1745,8 @@ async function elimina(coll, id) {
     if (coll === 'interventi') interventi = interventi.filter((x) => x.id !== id);
     if (coll === 'contatti') contatti = contatti.filter((x) => x.id !== id);
     if (coll === 'iscrizioni') iscrizioni = iscrizioni.filter((x) => x.id !== id);
-    disegna(); avvisa('Eliminato');
+    disegna();
+    if (!silenzioso) avvisa('Eliminato');
   } catch (e) { avvisa('Non eliminato: ' + (e.message || e), true); }
 }
 
@@ -2483,6 +2552,122 @@ document.addEventListener('click', (ev) => {
 
   if (el.dataset.apri) apriModifica(el.dataset.apri);
 });
+
+/* ==========================================================================
+   TRASCINAMENTO LATERALE
+   Tre difese contro il gesto involontario:
+   1) soglia ampia (un terzo della scheda, minimo 70 px)
+   2) si può rilasciare prima della soglia e non succede niente
+   3) dopo l'azione resta "Annulla" per sei secondi
+   ========================================================================== */
+const SOGLIA_FRAZ = 0.33, SOGLIA_MIN = 70;
+let gesto = null;
+
+document.addEventListener('pointerdown', (ev) => {
+  if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+  const dentro = ev.target.closest('.scorrevole');
+  if (!dentro) return;
+  // i tap sui pulsanti e sulle foto restano tap
+  if (ev.target.closest('button, a, input, textarea, select, [data-lente]')) return;
+  const box = dentro.closest('.swipe');
+  if (!box) return;
+  gesto = { box, dentro, x0: ev.clientX, y0: ev.clientY, dx: 0, attivo: false,
+            largh: box.clientWidth || 320, id: box.dataset.swId,
+            azDx: box.dataset.dx || '', azSx: box.dataset.sx || '' };
+});
+
+document.addEventListener('pointermove', (ev) => {
+  if (!gesto) return;
+  const dx = ev.clientX - gesto.x0, dy = ev.clientY - gesto.y0;
+  if (!gesto.attivo) {
+    if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 8) { gesto = null; return; }  // sta scorrendo la pagina
+    if (Math.abs(dx) < 10) return;
+    gesto.attivo = true;
+    gesto.dentro.style.transition = 'none';
+  }
+  // non lascio trascinare verso un lato che non ha azione
+  let d = dx;
+  if (d > 0 && !gesto.azDx) d = 0;
+  if (d < 0 && !gesto.azSx) d = 0;
+  gesto.dx = d;
+  gesto.dentro.style.transform = 'translateX(' + d + 'px)';
+  gesto.box.dataset.dir = d > 0 ? 'dx' : d < 0 ? 'sx' : '';
+  const soglia = Math.max(SOGLIA_MIN, gesto.largh * SOGLIA_FRAZ);
+  const superata = Math.abs(d) >= soglia;
+  gesto.box.classList.toggle('pronto', superata);
+  if (superata && !gesto.vibrato) { gesto.vibrato = true; if (navigator.vibrate) navigator.vibrate(12); }
+  if (!superata) gesto.vibrato = false;
+});
+
+function fineGesto() {
+  if (!gesto) return;
+  const g = gesto; gesto = null;
+  g.dentro.style.transition = 'transform .18s ease';
+  g.dentro.style.transform = 'translateX(0)';
+  g.box.classList.remove('pronto');
+  setTimeout(() => { if (g.box) g.box.dataset.dir = ''; }, 180);
+  if (!g.attivo) return;
+  const soglia = Math.max(SOGLIA_MIN, g.largh * SOGLIA_FRAZ);
+  if (Math.abs(g.dx) < soglia) return;                  // rilasciato prima: non succede nulla
+  eseguiSwipe(g.dx > 0 ? g.azDx : g.azSx, g.id);
+}
+document.addEventListener('pointerup', fineGesto);
+document.addEventListener('pointercancel', fineGesto);
+
+function eseguiSwipe(azione, id) {
+  const t = attivita.find((x) => x.id === id);
+  if (!azione || !t) return;
+
+  if (azione === 'finisci') {
+    const prima = { stato: t.stato, completato_il: t.completato_il };
+    cambia('attivita', id, { stato: 'Completato', completato_il: new Date().toISOString() })
+      .then(() => ripetiSeServe(id));
+    annota('Fatto', 'Lavoro', t.titolo, 'con il gesto', id);
+    avvisaAnnullabile('✓ ' + t.titolo, () => cambia('attivita', id, prima, 'Rimesso come prima'));
+    return;
+  }
+  if (azione === 'inizia') {
+    const prima = { stato: t.stato };
+    cambia('attivita', id, { stato: 'In corso' });
+    annota('Iniziato', 'Lavoro', t.titolo, 'con il gesto', id);
+    avvisaAnnullabile('▶ ' + t.titolo, () => cambia('attivita', id, prima, 'Rimesso come prima'));
+    return;
+  }
+  if (azione === 'routine') {
+    const era = routineFatta(t);
+    spuntaRoutine(id, true);
+    avvisaAnnullabile((era ? '↩ ' : '✓ ') + t.titolo, () => spuntaRoutine(id));
+    return;
+  }
+  if (azione === 'spesa') {
+    const era = t.stato === 'Completato';
+    spuntaSpesa(id, true);
+    avvisaAnnullabile((era ? '↩ ' : '🛒 ') + t.titolo, () => spuntaSpesa(id));
+    return;
+  }
+  if (azione === 'elimina-spesa') {
+    // conservo la riga per poterla ricreare identica
+    const copia = { tipo: t.tipo, titolo: t.titolo, assegnato_a: t.assegnato_a,
+                    stato: t.stato, priorita: t.priorita, categoria: t.categoria, note: t.note };
+    eliminaSilenzioso('attivita', id);
+    avvisaAnnullabile('🗑 ' + t.titolo, async () => {
+      try {
+        metti('attivita', await archivio.inserisci('attivita', copia));
+        annota('Aggiunto', copia.tipo, copia.titolo, 'ripristinato', null);
+        disegna(); avvisa('Rimesso in lista');
+      } catch (e) { avvisa('Non ripristinato: ' + (e.message || e), true); }
+    });
+  }
+}
+
+document.addEventListener('click', (ev) => {
+  if (ev.target && ev.target.id === 'annulla-azione') {
+    ev.stopPropagation();
+    const f = ripristina; ripristina = null;
+    $('#messaggio').hidden = true;
+    if (f) f();
+  }
+}, true);
 
 $('#ac-entra').addEventListener('click', entra);
 $('#ac-salva-password').addEventListener('click', salvaNuovaPassword);
