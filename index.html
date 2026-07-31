@@ -2181,7 +2181,7 @@ function bloccoChiSei() {
         Riconosciuto dal tuo account ${pul(utente.email || '')}: non lo devi più scegliere.</p>
       <div class="flex gap-2 mt-2">
         ${PERSONE.filter((p) => p !== 'Tutti' && p !== dallAccount).map((p) =>
-          `<button class="bot bot-chiaro bot-piccolo" data-sono="${pul(p)}">Non sono ${pul(p)}? Correggi</button>`).join('')}
+          `<button class="bot bot-chiaro bot-piccolo" data-sono="${pul(p)}">Correggi: sono ${pul(p)}</button>`).join('')}
       </div></div>`;
   }
   if (utente && !dallAccount) {
