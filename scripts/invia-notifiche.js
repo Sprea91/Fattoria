@@ -18,9 +18,11 @@ const VAPID_PUBBLICA = process.env.VAPID_PUBBLICA
 const VAPID_PRIVATA = (process.env.VAPID_PRIVATA || '').trim().replace(/[^A-Za-z0-9\-_]/g, '');
 const CONTATTO = process.env.VAPID_CONTATTO || 'mailto:cqindustrializzazione@medacta.ch';
 const FORZA = String(process.env.FORZA || '').toLowerCase() === 'true';
-// Ora italiana in cui va spedito il riassunto. Le due pianificazioni nel
-// workflow (una per l'ora legale, una per l'ora solare) puntano a questa.
-const ORA_INVIO = Number(process.env.ORA_INVIO || 7);
+// Finestra oraria italiana in cui il riassunto può partire. Non un'ora secca:
+// le esecuzioni pianificate di GitHub possono essere saltate o slittare, e con
+// una finestra il tentativo successivo recupera.
+const ORA_DA  = Number(process.env.ORA_DA  || 7);
+const ORA_A   = Number(process.env.ORA_A   || 10);
 const INDIRIZZO_APP = process.env.INDIRIZZO_APP || 'https://sprea91.github.io/Fattoria/';
 
 const intestazioni = {
@@ -103,21 +105,28 @@ async function principale() {
   const { giorno, ora, minuto } = adessoInItalia();
   console.log(`In Italia sono le ${String(ora).padStart(2, '0')}:${String(minuto).padStart(2, '0')} del ${giorno}`);
 
-  // Le due pianificazioni coprono ora solare e ora legale: invio solo a quella
-  // che in Italia corrisponde all'ora scelta.
-  if (!FORZA && ora !== ORA_INVIO) {
-    console.log(`Non è l'ora giusta in Italia (attesa ${ORA_INVIO}, sono le ${ora}): `
-      + 'non invio, ci pensa l\'altra pianificazione.');
+  // Fuori dalla finestra non si invia: le pianificazioni coprono sia l'ora
+  // legale sia quella solare, e quelle fuori orario non devono fare nulla.
+  if (!FORZA && (ora < ORA_DA || ora >= ORA_A)) {
+    console.log(`Fuori dalla finestra ${ORA_DA}-${ORA_A} in Italia (sono le ${ora}): non invio.`);
     return;
   }
 
-  const [attivita, iscrizioni] = await Promise.all([
+  const [attivita, tuttiIscritti] = await Promise.all([
     chiedi('attivita?select=tipo,titolo,scadenza,ora,stato,ultimo_completamento'),
     chiedi('iscrizioni_push?select=*')
   ]);
-  console.log(`Attività lette: ${attivita.length} · dispositivi iscritti: ${iscrizioni.length}`);
+  console.log(`Attività lette: ${attivita.length} · dispositivi iscritti: ${tuttiIscritti.length}`);
 
-  if (!iscrizioni.length) { console.log('Nessun dispositivo iscritto: niente da inviare.'); return; }
+  if (!tuttiIscritti.length) { console.log('Nessun dispositivo iscritto: niente da inviare.'); return; }
+
+  // Chi ha già ricevuto il riassunto di oggi viene saltato: così i tentativi di
+  // recupero non producono notifiche doppie.
+  const giaServito = (i) => String(i.ultimo_invio || '').slice(0, 10) === giorno;
+  const iscrizioni = FORZA ? tuttiIscritti : tuttiIscritti.filter((i) => !giaServito(i));
+  const saltati = tuttiIscritti.length - iscrizioni.length;
+  if (saltati) console.log(`${saltati} dispositivo/i hanno già ricevuto il riassunto di oggi: li salto.`);
+  if (!iscrizioni.length) { console.log('Tutti già avvisati oggi: non faccio nulla.'); return; }
 
   const { corpo, qualcosaDaDire, conteggi } = componiMessaggio(attivita, giorno);
   if (!qualcosaDaDire && !FORZA) { console.log('Giornata vuota: non disturbo.'); return; }

@@ -3,10 +3,20 @@ name: Notifiche del mattino
 # Due orari perché GitHub lavora in UTC: uno vale per l'ora legale, l'altro
 # per l'ora solare. Lo script controlla che in Italia siano le 6 e invia solo
 # in quel caso, così non arrivano due notifiche.
+# GitHub, sul piano gratuito, PUO SALTARE le esecuzioni pianificate quando e
+# sotto carico, e i minuti :00 e :30 sono i piu congestionati. Percio:
+#  - usiamo minuti "dispari", meno affollati
+#  - proviamo piu volte lungo la mattina
+# Lo script invia una volta sola: chi ha gia ricevuto oggi viene escluso, quindi
+# i tentativi in piu non producono notifiche doppie ma solo un recupero se il
+# primo tentativo viene saltato.
 on:
   schedule:
-    - cron: '30 5 * * *'   # 07:30 in Italia con ora legale (estate)
-    - cron: '30 6 * * *'   # 07:30 in Italia con ora solare (inverno)
+    - cron: '17 5 * * *'   # 07:17 in Italia d'estate  (06:17 d'inverno)
+    - cron: '43 5 * * *'   # 07:43 d'estate
+    - cron: '17 6 * * *'   # 08:17 d'estate / 07:17 d'inverno
+    - cron: '43 6 * * *'   # 08:43 d'estate / 07:43 d'inverno
+    - cron: '23 7 * * *'   # ultimo recupero: 09:23 d'estate / 08:23 d'inverno
   workflow_dispatch:        # pulsante per provare quando vuoi
 
 permissions:
