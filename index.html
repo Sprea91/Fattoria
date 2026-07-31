@@ -316,7 +316,9 @@
 
 <div id="foglio" aria-hidden="true"></div>
 
-<input id="scegli-foto" type="file" accept="image/*" capture="environment" hidden>
+<!-- l'attributo capture viene aggiunto solo quando si sceglie "Scatta":
+     se resta sempre, Android apre la fotocamera e non lascia usare la galleria -->
+<input id="scegli-foto" type="file" accept="image/*" hidden>
 <div id="messaggio" hidden class="fixed z-[70] left-1/2 -translate-x-1/2 bottom-40 px-4 py-3 rounded-xl text-white font-bold text-sm shadow-xl max-w-[92vw] text-center" style="background:#20281A"></div>
 
 <script>
@@ -828,6 +830,15 @@ async function rimpicciolisci(file, max = 1280, q = 0.72) {
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
   const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', q));
   return { blob, dataUrl: c.toDataURL('image/jpeg', q) };
+}
+
+// Due strade separate: la fotocamera subito, oppure la galleria/i file.
+// Con `capture` fisso nell'HTML Android aprirebbe sempre la fotocamera.
+function apriSelettoreFoto(conFotocamera) {
+  const inp = $('#scegli-foto');
+  if (conFotocamera) inp.setAttribute('capture', 'environment');
+  else inp.removeAttribute('capture');
+  inp.click();
 }
 
 $('#scegli-foto').addEventListener('change', async (ev) => {
@@ -1585,7 +1596,10 @@ function leggiCampi() {
 function bloccoInquadratura(foto) {
   if (!foto) {
     return `<div><span class="didascalia">Foto dell'animale</span>
-      <button type="button" class="bot bot-chiaro w-full mt-2" data-azione="prendi-foto">📷 Scatta o scegli foto</button></div>`;
+      <div class="flex gap-2 mt-2">
+        <button type="button" class="bot bot-chiaro flex-1" data-azione="scatta-foto">📷 Scatta</button>
+        <button type="button" class="bot bot-chiaro flex-1" data-azione="prendi-foto">🖼️ Galleria</button>
+      </div></div>`;
   }
   const intera = mod.foto_inquadratura === 'intera';
   return `<div><span class="didascalia">Foto e inquadratura</span>
@@ -1597,9 +1611,10 @@ function bloccoInquadratura(foto) {
         <button type="button" class="past flex-1" aria-pressed="${!intera}" data-inquadra="riempi">Riempi il riquadro</button>
         <button type="button" class="past flex-1" aria-pressed="${intera}" data-inquadra="intera">Mostra tutta</button>
       </div>
+      <button type="button" class="bot bot-chiaro w-full mt-2" data-inquadra="centra">🎯 Centra la foto</button>
       <div class="flex gap-2 mt-2">
-        <button type="button" class="bot bot-chiaro flex-1" data-inquadra="centra">🎯 Centra</button>
-        <button type="button" class="bot bot-chiaro flex-1" data-azione="prendi-foto">📷 Cambia</button>
+        <button type="button" class="bot bot-chiaro flex-1" data-azione="scatta-foto">📷 Scatta</button>
+        <button type="button" class="bot bot-chiaro flex-1" data-azione="prendi-foto">🖼️ Galleria</button>
         <button type="button" class="bot bot-rosso" data-azione="togli-foto">🗑</button>
       </div></div>`;
 }
@@ -1658,7 +1673,8 @@ function disegnaPannello() {
     <div><span class="didascalia">${etichettaCampo}</span>
       ${foto ? `<img src="${pul(foto)}" class="miniatura mt-1.5" alt="Foto" data-lente="${pul(foto)}">` : ''}
       <div class="flex gap-2 mt-2">
-        <button type="button" class="bot bot-chiaro flex-1" data-azione="prendi-foto">📷 ${foto ? 'Cambia' : 'Scatta o scegli'} foto</button>
+        <button type="button" class="bot bot-chiaro flex-1" data-azione="scatta-foto">📷 Scatta</button>
+        <button type="button" class="bot bot-chiaro flex-1" data-azione="prendi-foto">🖼️ Galleria</button>
         ${foto ? '<button type="button" class="bot bot-rosso" data-azione="togli-foto">🗑</button>' : ''}
       </div></div>`;
 
@@ -2227,7 +2243,8 @@ document.addEventListener('click', (ev) => {
       { const x = animaleAperto; chiudiPannello(); elimina('animali', x); } return;
     case 'apri-contatti': apriContatti(); return;
     case 'extra':    leggiCampi(); mod.extra = true; disegnaPannello(); return;
-    case 'prendi-foto': $('#scegli-foto').click(); return;
+    case 'prendi-foto': apriSelettoreFoto(false); return;   // galleria o file
+    case 'scatta-foto': apriSelettoreFoto(true); return;    // fotocamera diretta
     case 'togli-foto':  leggiCampi(); fotoScelta.dati = null; mod.foto_url = null; disegnaPannello(); return;
     case 'salva':    salva(); return;
     case 'google-calendar': googleCalendar(idAperto); return;
