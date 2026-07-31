@@ -63,7 +63,11 @@ function componiMessaggio(attivita, oggi) {
   const ritardo = aperti.filter((t) => t.scadenza && giorniDiDifferenza(t.scadenza, oggi) < 0);
   const diOggi = aperti.filter((t) => t.scadenza === oggi);
   const iniziati = aperti.filter((t) => t.stato === 'In corso');
-  const routineDaFare = routine.filter((t) => t.ultimo_completamento !== oggi);
+  // Al mattino contano le routine del mattino (e quelle "in giornata"):
+  // ricordare le serali alle 7 del mattino non serve a niente.
+  const routineMattino = routine.filter((t) => t.momento !== 'Sera');
+  const routineSera    = routine.filter((t) => t.momento === 'Sera');
+  const routineDaFare  = routineMattino.filter((t) => t.ultimo_completamento !== oggi);
 
   const appuntamenti = diOggi.filter((t) => t.ora).sort((a, b) => a.ora.localeCompare(b.ora));
   const senzaOra = diOggi.filter((t) => !t.ora);
@@ -82,7 +86,12 @@ function componiMessaggio(attivita, oggi) {
     senzaOra.slice(0, 3).forEach((t) => righe.push('  • ' + t.titolo));
   }
   if (iniziati.length) righe.push('🔄 Iniziati e non finiti: ' + iniziati.length);
-  if (routine.length) righe.push('☀️ Routine: ' + (routine.length - routineDaFare.length) + ' su ' + routine.length + ' fatte');
+  if (routineMattino.length) {
+    righe.push('☀️ Routine del mattino: ' + (routineMattino.length - routineDaFare.length)
+      + ' su ' + routineMattino.length + ' fatte');
+  }
+  if (routineSera.length) righe.push('🌙 Stasera: ' + routineSera.length
+    + (routineSera.length === 1 ? ' routine' : ' routine'));
   if (spesa.length) righe.push('🛒 Da comprare: ' + spesa.length + (spesa.length === 1 ? ' cosa' : ' cose'));
 
   const qualcosaDaDire = ritardo.length || diOggi.length || spesa.length || routineDaFare.length || iniziati.length;

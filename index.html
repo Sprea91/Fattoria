@@ -361,6 +361,13 @@ const RICORRENZE = [
   { v: 'Ogni 6 mesi',      giorni: 0,  mesi: 6 },
   { v: 'Ogni anno',        giorni: 0,  mesi: 12 }
 ];
+// Quando va fatta una routine. "In giornata" = quando capita, senza orario.
+const MOMENTI = ['Mattina', 'Sera', 'In giornata'];
+const MOMENTO_DOPPIO = 'Mattina e sera';
+const ICONA_MOMENTO = { Mattina: '☀️', Sera: '🌙', 'In giornata': '🕐' };
+const NOME_MOMENTO  = { Mattina: 'Routine del mattino', Sera: 'Routine della sera', 'In giornata': 'Routine in giornata' };
+const momentoDi = (t) => (t.momento === 'Mattina' || t.momento === 'Sera') ? t.momento : 'In giornata';
+
 const SPECIE    = ['Bovino', 'Ovino', 'Caprino', 'Avicolo', 'Equino', 'Suino', 'Altro'];
 const EMOJI_SPECIE = { Bovino: '🐄', Ovino: '🐑', Caprino: '🐐', Avicolo: '🐔', Equino: '🐴', Suino: '🐖', Altro: '🐾' };
 const TIPI_EVENTO  = ['Vaccino', 'Sverminazione', 'Visita veterinaria', 'Integratore', 'Altro'];
@@ -1000,6 +1007,13 @@ const perUrgenza = (a, b) => {
   return String(b.creato_il).localeCompare(String(a.creato_il));
 };
 const leRoutine = () => attivita.filter((t) => t.tipo === 'Routine').sort((a, b) => (a.ordine || 0) - (b.ordine || 0));
+const leRoutineDi = (m) => leRoutine().filter((t) => momentoDi(t) === m);
+// Fino alle 14 conta il mattino, dopo la sera: il primo elenco è quello che
+// serve adesso, l'altro resta comunque sotto.
+const momentiOrdinati = () => {
+  const h = new Date().getHours();
+  return (h < 14 ? ['Mattina', 'Sera'] : ['Sera', 'Mattina']).concat(['In giornata']);
+};
 const iLavori   = () => attivita.filter((t) => t.tipo === 'Lavoro');
 const leNote    = () => attivita.filter((t) => t.tipo === 'Nota').sort((a, b) => String(b.creato_il).localeCompare(String(a.creato_il)));
 const laSpesa   = () => attivita.filter((t) => t.tipo === 'Spesa');
@@ -1190,12 +1204,22 @@ function disegnaOggi() {
       <div class="space-y-3">${settimana.length ? settimana.map((t) => schedaLavoro(t)).join('')
         : '<div class="scheda text-center py-6"><p class="font-black">Niente in programma questa settimana</p></div>'}</div></section>`;
 
-  h += `<section>
-      <h2 class="titolo-sez">☀️ Routine di oggi <span class="conta">${fatte}/${rt.length}</span></h2>
-      <div class="space-y-2.5">${rt.length ? rt.map(rigaRoutine).join('')
-        : '<p class="scheda text-center font-bold py-6">Nessuna routine. Aggiungila da ⚙️</p>'}</div>
-      <p class="text-xs font-semibold mt-2 px-1" style="color:var(--inchiostro2)">Cerchietto = fatto · tocca il nome per modificarla</p>
-    </section>`;
+  if (!rt.length) {
+    h += `<section><h2 class="titolo-sez">☀️ Routine</h2>
+      <p class="scheda text-center font-bold py-6">Nessuna routine. Aggiungila da ⚙️</p></section>`;
+  } else {
+    momentiOrdinati().forEach((m) => {
+      const lista = leRoutineDi(m);
+      if (!lista.length) return;
+      const f = lista.filter(routineFatta).length;
+      h += `<section>
+        <h2 class="titolo-sez">${ICONA_MOMENTO[m]} ${NOME_MOMENTO[m]} <span class="conta">${f}/${lista.length}</span></h2>
+        <div class="space-y-2.5">${lista.map(rigaRoutine).join('')}</div>
+      </section>`;
+    });
+    h += `<p class="text-xs font-semibold px-1" style="color:var(--inchiostro2)">
+      Cerchietto = fatto · tocca il nome per modificarla. Le spunte del mattino e della sera sono separate.</p>`;
+  }
 
   // 4) calendario in fondo, con l'elenco del giorno scelto subito sotto
   h += `<section><h2 class="titolo-sez">📅 Calendario</h2>${widgetCalendario()}</section>`;
@@ -1663,7 +1687,7 @@ async function elimina(coll, id) {
    ========================================================================== */
 function apriNuovo(tipo, scadenza) {
   modo = 'nuovo'; idAperto = null; tipoAperto = tipo; fotoScelta.dati = null;
-  mod = { titolo: '', categoria: 'Animali', ricorrenza: 'Mai',
+  mod = { titolo: '', categoria: 'Animali', ricorrenza: 'Mai', momento: 'Mattina',
           assegnato_a: io, priorita: 'Media', stato: 'Da fare', scadenza: scadenza || '', ora: '', note: '',
           specie: 'Bovino', razza: '', data_nascita: '', codice_stalla: '', costo_acquisto: '',
           tipo_evento: 'Visita veterinaria', data_evento: OGGI, descrizione: '', nome_veterinario: '', costo: '',
@@ -1679,6 +1703,7 @@ function apriModifica(id) {
           assegnato_a: persona(t.assegnato_a) || 'Stefano', priorita: t.priorita || 'Media', stato: t.stato || 'Da fare',
           scadenza: t.scadenza || '', ora: t.ora || '', avevaOra: !!t.ora,
           ricorrenza: t.ricorrenza || 'Mai', avevaRicorrenza: !!t.ricorrenza,
+          momento: momentoDi(t),
           note: t.note || '', foto_url: t.foto_url || null, extra: true };
   disegnaPannello(); apriPannello();
 }
@@ -1904,6 +1929,16 @@ function disegnaPannello() {
   if (eLavoro || eRoutine) {
     h += `<div><span class="didascalia">Chi lo fa</span><div class="flex gap-2 mt-1.5">${pastiglie(PERSONE, mod.assegnato_a, 'assegnato_a')}</div></div>`;
   }
+  if (eRoutine) {
+    // in creazione si può chiedere la coppia mattina+sera in un colpo
+    const scelte = nuovo ? MOMENTI.concat([MOMENTO_DOPPIO]) : MOMENTI;
+    h += `<div><span class="didascalia">Quando</span>
+      <div class="flex flex-wrap gap-2 mt-1.5">${pastiglie(scelte, mod.momento || 'Mattina', 'momento', '')}</div>
+      <p class="text-xs font-semibold mt-1" style="color:var(--inchiostro2)">
+        ${mod.momento === MOMENTO_DOPPIO
+          ? 'Ne creo due, una per il mattino e una per la sera: così le spunti separatamente.'
+          : 'Mattino e sera hanno elenchi e spunte separati.'}</p></div>`;
+  }
   if (eLavoro) {
     if (nuovo && !mod.extra) {
       h += '<button type="button" class="bot bot-chiaro bot-piccolo w-full" data-azione="extra">＋ Altro (data, priorità, foto, note)</button>';
@@ -2028,6 +2063,7 @@ async function salva() {
       if (!mod.scadenza) riga.ora = mod.avevaOra ? null : undefined;
       if (riga.ora === undefined) delete riga.ora;
     }
+    if (k === 'Routine' && modo !== 'nuovo' && mod.momento && mod.momento !== MOMENTO_DOPPIO) riga.momento = mod.momento;
     if (k === 'Nota')  riga.assegnato_a = io;
     if (k === 'Spesa') riga.assegnato_a = 'Tutti';
     if (urlFoto) riga.foto_url = urlFoto;
@@ -2035,7 +2071,21 @@ async function salva() {
     if (nuovo) {
       riga.tipo = k;
       riga.stato = riga.stato || 'Da fare';
-      if (k === 'Routine') { riga.routine_giornaliera = true; riga.ordine = leRoutine().length + 1; }
+      if (k === 'Routine') {
+        riga.routine_giornaliera = true;
+        riga.ordine = leRoutine().length + 1;
+        // "Mattina e sera" crea due routine gemelle, una per momento
+        if (mod.momento === MOMENTO_DOPPIO) {
+          for (const m of ['Mattina', 'Sera']) {
+            const gemella = { ...riga, momento: m, ordine: leRoutine().length + 1 };
+            metti('attivita', await archivio.inserisci('attivita', gemella));
+            annota('Aggiunto', 'Routine', titolo, m.toLowerCase(), null);
+          }
+          chiudiPannello(); disegna(); avvisa('Create due routine: mattino e sera');
+          return;
+        }
+        riga.momento = mod.momento || 'Mattina';
+      }
       const salvataAt = await archivio.inserisci('attivita', riga);
       metti('attivita', salvataAt);
       annota('Aggiunto', k, titolo, k === 'Lavoro' && riga.scadenza
@@ -2289,7 +2339,10 @@ function disegnaImpostazioni() {
       <p class="text-xs font-semibold mt-1" style="color:var(--inchiostro2)">
         Con le frecce le metti nell'ordine in cui giri la mattina.</p>
       <div class="space-y-2 mt-2">
-        ${rt.map((t, i) => `<div class="scheda scheda-fitta flex items-center gap-2">
+        ${momentiOrdinati().filter((m) => leRoutineDi(m).length).map((m) =>
+          `<p class="didascalia mt-2">${ICONA_MOMENTO[m]} ${pul(m)}</p>` + leRoutineDi(m).map((t) => {
+            const i = rt.indexOf(t);
+            return `<div class="scheda scheda-fitta flex items-center gap-2">
             <span class="flex flex-col gap-1 shrink-0">
               <button class="bot bot-chiaro px-2" style="min-height:26px"
                       data-azione="su-routine" data-id="${t.id}" ${i === 0 ? 'disabled style="opacity:.3;min-height:26px"' : ''} aria-label="Sposta su">▲</button>
@@ -2301,7 +2354,8 @@ function disegnaImpostazioni() {
               <span class="block text-xs font-semibold mt-0.5" style="color:var(--inchiostro2)">${pul(persona(t.assegnato_a))}</span>
             </button>
             <button class="bot bot-rosso bot-piccolo shrink-0" data-azione="elimina" data-id="${t.id}">🗑</button>
-          </div>`).join('') || '<p class="text-sm font-semibold">Nessuna routine.</p>'}
+          </div>`;
+          }).join('')).join('') || '<p class="text-sm font-semibold">Nessuna routine.</p>'}
       </div>
       <button class="bot bot-chiaro w-full mt-2" data-azione="nuova-routine">＋ Nuova routine</button></div>
 
