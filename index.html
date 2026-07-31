@@ -380,6 +380,8 @@ let interventi = [];
 let contatti   = [];
 let iscrizioni = [];              // dispositivi che ricevono le notifiche
 let regSW      = null;            // service worker registrato
+let diario     = [];              // chi ha fatto cosa e quando
+let schedaStorico = 'diario';     // diario | completati
 let utente     = null;            // chi ha fatto l'accesso (null = nessuno)
 let modoAccesso = 'entra';        // entra | recupera | nuova-password
 let vista       = 'oggi';
@@ -484,7 +486,7 @@ function eta(nascita) {
 let sb = null, canale = null;
 const CHIAVE_LOCALE = 'fattoria_v4';
 const TABELLE = { attivita: 'attivita', animali: 'animali', interventi: 'interventi_animali',
-                  contatti: 'contatti', iscrizioni: 'iscrizioni_push' };
+                  contatti: 'contatti', iscrizioni: 'iscrizioni_push', diario: 'diario' };
 
 const archivioLocale = {
   leggi() { try { return JSON.parse(localStorage.getItem(CHIAVE_LOCALE)) || null; } catch { return null; } },
@@ -503,7 +505,8 @@ const archivioLocale = {
       this.scrivi(d);
     }
     return { attivita: d.attivita || [], animali: d.animali || [], interventi: d.interventi || [],
-             contatti: d.contatti || [], iscrizioni: d.iscrizioni || [] };
+             contatti: d.contatti || [], iscrizioni: d.iscrizioni || [],
+             diario: (d.diario || []).slice(-400).reverse() };
   },
   async inserisci(coll, riga) {
     const d = this.leggi() || { attivita: [], animali: [], interventi: [], contatti: [] };
@@ -546,8 +549,14 @@ const archivioRemoto = {
       const r = await sb.from(TABELLE.iscrizioni).select('*').order('creato_il');
       if (!r.error) isc = r.data || [];
     } catch (e) {}
+    // il diario può crescere: ne tengo in memoria solo l'ultimo tratto
+    let di = [];
+    try {
+      const r = await sb.from(TABELLE.diario).select('*').order('quando', { ascending: false }).limit(400);
+      if (!r.error) di = r.data || [];
+    } catch (e) {}
     return { attivita: a.data || [], animali: an.data || [], interventi: iv.data || [],
-             contatti: co.data || [], iscrizioni: isc };
+             contatti: co.data || [], iscrizioni: isc, diario: di };
   },
   async inserisci(coll, riga) {
     const { data, error } = await sb.from(TABELLE[coll]).insert(riga).select().single();
@@ -576,7 +585,28 @@ const archivioRemoto = {
 
 let archivio = archivioLocale;
 const elenco = { attivita: () => attivita, animali: () => animali, interventi: () => interventi,
-                 contatti: () => contatti, iscrizioni: () => iscrizioni };
+                 contatti: () => contatti, iscrizioni: () => iscrizioni, diario: () => diario };
+
+/* ==========================================================================
+   DIARIO — chi ha fatto cosa e quando
+   Scrivere nel diario non deve mai far fallire l'operazione vera: se il diario
+   non è raggiungibile, l'azione dell'utente va avanti comunque.
+   ========================================================================== */
+async function annota(azione, oggetto, titolo, dettaglio, riferimento) {
+  const riga = {
+    quando: new Date().toISOString(), chi: io, azione, oggetto: oggetto || null,
+    titolo: titolo || null, dettaglio: dettaglio || null, riferimento: riferimento || null
+  };
+  diario.unshift({ id: 'locale-' + Math.random().toString(36).slice(2, 9), ...riga });
+  if (diario.length > 400) diario.length = 400;
+  try {
+    const salvata = await archivio.inserisci('diario', riga);
+    if (salvata && salvata.id) diario[0] = salvata;
+  } catch (e) {
+    // niente allarmi all'utente: il diario è un extra
+    console.log('Diario non scritto: ' + (e.message || e));
+  }
+}
 
 /* ==========================================================================
    ACCESSO
@@ -1369,13 +1399,60 @@ function disegnaSpesa() {
 /* ==========================================================================
    STORICO
    ========================================================================== */
+const ICONA_AZIONE = { Aggiunto: '➕', Modificato: '✏️', Eliminato: '🗑', Fatto: '✅',
+                       Iniziato: '▶️', Comprato: '🛒', Rimesso: '↩️' };
+
+function disegnaDiario() {
+  if (!diario.length) {
+    return `<p class="scheda text-center font-bold py-10">Il diario è vuoto.<br>
+      <span class="font-semibold text-sm">Da qui in avanti ogni cosa fatta finisce qui, con chi l'ha fatta e a che ora.</span></p>`;
+  }
+  const gruppi = {};
+  diario.forEach((r) => {
+    const g = String(r.quando).slice(0, 10);
+    (gruppi[g] = gruppi[g] || []).push(r);
+  });
+  return Object.keys(gruppi).sort().reverse().map((g) => `
+    <section>
+      <h2 class="titolo-sez">📅 ${pul(etichettaData(g) || g)} <span class="conta">${gruppi[g].length}</span></h2>
+      <div class="space-y-1.5">
+        ${gruppi[g].map((r) => {
+          const ora = new Date(r.quando).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+          return `<div class="scheda scheda-fitta flex items-start gap-2">
+            <span class="text-lg shrink-0">${ICONA_AZIONE[r.azione] || '•'}</span>
+            <span class="flex-1 min-w-0">
+              <span class="block font-bold text-sm leading-tight">${pul(r.titolo || r.oggetto || '')}</span>
+              <span class="block text-xs font-semibold mt-0.5" style="color:var(--inchiostro2)">
+                ${pul(r.azione)}${r.oggetto ? ' · ' + pul(r.oggetto) : ''}${r.dettaglio ? ' · ' + pul(r.dettaglio) : ''}
+              </span>
+            </span>
+            <span class="shrink-0 text-right">
+              <span class="etichetta et-chi">${pul(r.chi || '?')}</span>
+              <span class="block text-xs font-bold mt-1" style="color:var(--inchiostro2)">${pul(ora)}</span>
+            </span>
+          </div>`;
+        }).join('')}
+      </div>
+    </section>`).join('');
+}
+
 function disegnaStorico() {
   const fatti = attivita
     .filter((t) => (t.tipo === 'Lavoro' && t.stato === 'Completato') || (t.tipo === 'Routine' && t.ultimo_completamento))
     .map((t) => ({ t, quando: t.tipo === 'Routine' ? (t.completato_il || t.ultimo_completamento + 'T12:00:00') : (t.completato_il || t.creato_il) }))
     .sort((a, b) => String(b.quando).localeCompare(String(a.quando)));
 
-  let h = '<button class="bot bot-chiaro w-full" data-vista="oggi">‹ Torna alla Home</button>';
+  let h = `<button class="bot bot-chiaro w-full" data-vista="oggi">‹ Torna alla Home</button>
+    <div class="flex gap-2">
+      <button class="past flex-1" data-scheda="diario" aria-pressed="${schedaStorico === 'diario'}">📔 Chi ha fatto cosa</button>
+      <button class="past flex-1" data-scheda="completati" aria-pressed="${schedaStorico === 'completati'}">✅ Completati</button>
+    </div>`;
+
+  if (schedaStorico === 'diario') {
+    $('#corpo-storico').innerHTML = h + disegnaDiario();
+    return;
+  }
+
   if (!fatti.length) h += '<p class="scheda text-center font-bold py-10">Ancora nessun lavoro completato.</p>';
   else {
     const gr = {};
@@ -1511,6 +1588,7 @@ const spuntaRoutine = (id) => {
   cambia('attivita', id, su ? { ultimo_completamento: null, completato_il: null }
                             : { ultimo_completamento: OGGI, completato_il: new Date().toISOString() },
          su ? 'Rimesso da fare' : '✓ Fatto');
+  annota(su ? 'Rimesso' : 'Fatto', 'Routine', t.titolo, null, id);
 };
 const spuntaSpesa = (id) => {
   const t = attivita.find((x) => x.id === id); if (!t) return;
@@ -1518,6 +1596,7 @@ const spuntaSpesa = (id) => {
   cambia('attivita', id, fatto ? { stato: 'Da fare', completato_il: null }
                                : { stato: 'Completato', completato_il: new Date().toISOString() },
          fatto ? 'Rimesso in lista' : '✓ Comprato');
+  annota(fatto ? 'Rimesso' : 'Comprato', 'Spesa', t.titolo, null, id);
 };
 async function svuotaComprati() {
   for (const t of laSpesa().filter((x) => x.stato === 'Completato')) {
@@ -1549,9 +1628,17 @@ async function spostaRoutine(id, direzione) {
   }
 }
 
+const NOME_OGGETTO = { attivita: 'Attività', animali: 'Animale', interventi: 'Intervento',
+                       contatti: 'Contatto', iscrizioni: 'Dispositivo', diario: 'Diario' };
+
 async function elimina(coll, id) {
   try {
+    // prendo il titolo prima di cancellare, altrimenti nel diario resta un buco
+    const riga = (elenco[coll] ? elenco[coll]() : []).find((x) => x.id === id) || {};
+    const comeSiChiamava = riga.titolo || riga.nome || riga.tipo_evento || riga.dispositivo || '';
+    const tipoRiga = coll === 'attivita' ? (riga.tipo || 'Attività') : NOME_OGGETTO[coll];
     await archivio.elimina(coll, id);
+    if (coll !== 'diario') annota('Eliminato', tipoRiga, comeSiChiamava, null, null);
     if (coll === 'attivita') attivita = attivita.filter((x) => x.id !== id);
     if (coll === 'animali') { animali = animali.filter((x) => x.id !== id); interventi = interventi.filter((x) => x.animale_id !== id); }
     if (coll === 'interventi') interventi = interventi.filter((x) => x.id !== id);
@@ -1873,7 +1960,9 @@ async function salva() {
       // la colonna esista nel database
       if (mod.foto_inquadratura && mod.foto_inquadratura !== '50% 50%') riga.foto_inquadratura = mod.foto_inquadratura;
       else if (mod.avevaInquadratura) riga.foto_inquadratura = null;
-      metti('animali', nuovo ? await archivio.inserisci('animali', riga) : await archivio.modifica('animali', idAperto, riga));
+      const salvatoAn = nuovo ? await archivio.inserisci('animali', riga) : await archivio.modifica('animali', idAperto, riga);
+      metti('animali', salvatoAn);
+      annota(nuovo ? 'Aggiunto' : 'Modificato', 'Animale', titolo, null, (salvatoAn && salvatoAn.id) || idAperto);
       chiudiPannello(); disegna(); avvisa(nuovo ? 'Animale aggiunto' : 'Modifiche salvate');
       return;
     }
@@ -1887,7 +1976,12 @@ async function salva() {
       // come per gli altri campi nuovi: lo invio solo quando serve
       if (mod.prossimo_il) riga.prossimo_il = mod.prossimo_il;
       else if (mod.avevaProssimo) riga.prossimo_il = null;
-      metti('interventi', nuovo ? await archivio.inserisci('interventi', riga) : await archivio.modifica('interventi', idAperto, riga));
+      const salvatoIv = nuovo ? await archivio.inserisci('interventi', riga) : await archivio.modifica('interventi', idAperto, riga);
+      metti('interventi', salvatoIv);
+      { const anRif = animali.find((z) => z.id === animaleAperto);
+        annota(nuovo ? 'Aggiunto' : 'Modificato', 'Intervento',
+               riga.tipo_evento + (anRif ? ' — ' + anRif.nome : ''),
+               riga.costo ? euro(riga.costo) : null, (salvatoIv && salvatoIv.id) || idAperto); }
       if (mod.prossimo_il) await creaPromemoriaSanitario(animaleAperto, mod.tipo_evento, mod.prossimo_il, mod.descrizione);
       disegna(); avvisa(nuovo ? 'Intervento aggiunto' : 'Modifiche salvate');
       apriAnimale(animaleAperto);            // torno alla carta d'identità aggiornata
@@ -1897,7 +1991,9 @@ async function salva() {
     if (k === 'Contatto') {
       const riga = { nome: titolo, ruolo: mod.ruolo, telefono: (mod.telefono || '').trim() || null,
         note: (mod.note || '').trim() || null };
-      metti('contatti', await archivio.inserisci('contatti', riga));
+      const salvatoCo = await archivio.inserisci('contatti', riga);
+      metti('contatti', salvatoCo);
+      annota('Aggiunto', 'Contatto', titolo, riga.ruolo, salvatoCo && salvatoCo.id);
       disegna(); avvisa('Contatto aggiunto'); apriContatti();
       return;
     }
@@ -1930,7 +2026,10 @@ async function salva() {
       riga.tipo = k;
       riga.stato = riga.stato || 'Da fare';
       if (k === 'Routine') { riga.routine_giornaliera = true; riga.ordine = leRoutine().length + 1; }
-      metti('attivita', await archivio.inserisci('attivita', riga));
+      const salvataAt = await archivio.inserisci('attivita', riga);
+      metti('attivita', salvataAt);
+      annota('Aggiunto', k, titolo, k === 'Lavoro' && riga.scadenza
+        ? 'per il ' + riga.scadenza.split('-').reverse().join('/') : null, salvataAt && salvataAt.id);
       if (k === 'Spesa') {                       // resto nel modulo per aggiungerne altri
         mod.titolo = ''; disegnaPannello(); disegna();
         const e = $('#m-titolo'); if (e) e.focus();
@@ -1940,6 +2039,7 @@ async function salva() {
     } else {
       metti('attivita', await archivio.modifica('attivita', idAperto, riga));
       const idSalvato = idAperto;
+      annota(riga.stato === 'Completato' ? 'Fatto' : 'Modificato', k, titolo, null, idSalvato);
       chiudiPannello(); disegna(); avvisa('Modifiche salvate');
       if (k === 'Lavoro' && riga.stato === 'Completato') await ripetiSeServe(idSalvato);
     }
@@ -2055,7 +2155,7 @@ function inCsv(righe) {
   return [col.join(';')].concat(righe.map((r) => col.map((c) => cella(r[c])).join(';'))).join('\r\n');
 }
 function backupJson() {
-  const d = { esportato_il: new Date().toISOString(), attivita, animali, interventi, contatti };
+  const d = { esportato_il: new Date().toISOString(), attivita, animali, interventi, contatti, diario };
   scarica(`fattoria-backup-${OGGI}.json`, JSON.stringify(d, null, 2), 'application/json');
   avvisa('Backup JSON scaricato');
 }
@@ -2198,6 +2298,12 @@ function disegnaImpostazioni() {
     <div><span class="didascalia">Contatti utili</span>
       <button class="bot bot-chiaro w-full mt-2" data-azione="apri-contatti">📞 Apri rubrica (${contatti.length})</button></div>
 
+    <div><span class="didascalia">Storico e diario</span>
+      <p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">
+        Chi ha fatto cosa e quando, e l'elenco di tutto ciò che è stato completato.</p>
+      <button class="bot bot-chiaro w-full mt-2" data-vista="storico">📔 Apri storico e diario${diario.length ? ' (' + diario.length + ' voci)' : ''}</button>
+    </div>
+
     ${bloccoNotifiche()}
 
     <div><span class="didascalia">Backup dei dati</span>
@@ -2215,7 +2321,7 @@ function disegnaImpostazioni() {
    EVENTI
    ========================================================================== */
 document.addEventListener('click', (ev) => {
-  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra]');
+  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra],[data-scheda]');
   if (!el) return;
 
   if (el.dataset.vista) {
@@ -2226,6 +2332,7 @@ document.addEventListener('click', (ev) => {
   if (el.dataset.lente)   { $('#lente img').src = el.dataset.lente; $('#lente').hidden = false; return; }
   if (el.dataset.miei)    { filtroMiei = el.dataset.miei; disegna(); return; }
   if (el.dataset.filtroReg) { filtroReg = el.dataset.filtroReg; disegna(); return; }
+  if (el.dataset.scheda)    { schedaStorico = el.dataset.scheda; disegna(); return; }
   if (el.dataset.io)      { io = el.dataset.io; localStorage.setItem('fattoria_io', io); disegnaImpostazioni(); disegna(); return; }
   if (el.dataset.sono)    { impostaIdentita(el.dataset.sono); return; }
   if (el.dataset.animale) { apriAnimale(el.dataset.animale); return; }
@@ -2254,10 +2361,16 @@ document.addEventListener('click', (ev) => {
   switch (el.dataset.azione) {
     case 'routine':  spuntaRoutine(id); return;
     case 'spesa':    spuntaSpesa(id); return;
-    case 'inizia':   ev.stopPropagation(); cambia('attivita', id, { stato: 'In corso' }, '▶ In corso'); return;
+    case 'inizia':   ev.stopPropagation();
+      { const t = attivita.find((x) => x.id === id);
+        cambia('attivita', id, { stato: 'In corso' }, '▶ In corso');
+        annota('Iniziato', 'Lavoro', t && t.titolo, null, id); }
+      return;
     case 'finisci':  ev.stopPropagation();
-      cambia('attivita', id, { stato: 'Completato', completato_il: new Date().toISOString() }, '✓ Completato')
-        .then(() => ripetiSeServe(id));
+      { const t = attivita.find((x) => x.id === id);
+        cambia('attivita', id, { stato: 'Completato', completato_il: new Date().toISOString() }, '✓ Completato')
+          .then(() => ripetiSeServe(id));
+        annota('Fatto', t && t.tipo === 'Routine' ? 'Routine' : 'Lavoro', t && t.titolo, null, id); }
       return;
     case 'elimina':  ev.stopPropagation(); elimina('attivita', id).then(() => { if (modo === 'impostazioni') disegnaImpostazioni(); }); return;
     case 'elimina-contatto': elimina('contatti', id).then(() => apriContatti()); return;
@@ -2377,6 +2490,7 @@ async function ricarica(conMessaggio) {
     if (mia !== seqCarico) return;
     attivita = d.attivita; animali = d.animali; interventi = d.interventi; contatti = d.contatti;
     iscrizioni = d.iscrizioni || [];
+    diario = d.diario || [];
     caricoRotto = false; disegna();
     if (conMessaggio) avvisa('Dati aggiornati');
   } catch (e) {
