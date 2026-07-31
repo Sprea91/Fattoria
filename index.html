@@ -260,6 +260,8 @@
     </h1>
     <span id="stato-rete" class="etichetta shrink-0" style="background:#ffffffcc">…</span>
     <div class="ml-auto flex items-center gap-1.5 shrink-0">
+      <button id="bot-cerca" class="w-10 h-10 rounded-xl grid place-items-center text-xl"
+              style="background:#ffffff99" aria-label="Cerca">🔍</button>
       <button id="bot-avvisi" class="w-10 h-10 rounded-xl grid place-items-center text-xl"
               style="background:#ffffff99" aria-label="Avvisi">
         <span class="campana">🔔<span id="pallino" hidden>0</span></span>
@@ -1617,6 +1619,111 @@ function stampaSpese() {
   setTimeout(() => { try { window.print(); } catch (e) { avvisa('Stampa non disponibile', true); } }, 250);
 }
 
+/* ==========================================================================
+   RICERCA
+   Cerca in tutto: attività, routine, note, spesa, animali, interventi,
+   contatti. Non fa differenza fra maiuscole, minuscole e accenti; con più
+   parole le cerca tutte.
+   ========================================================================== */
+const senzaAccenti = (s) => String(s ?? '').toLowerCase()
+  .normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+function cercaTutto(testo) {
+  const parole = senzaAccenti(testo).trim().split(/\s+/).filter(Boolean);
+  if (!parole.length) return null;
+  const dentro = (...campi) => {
+    const unito = senzaAccenti(campi.filter(Boolean).join(' '));
+    return parole.every((p) => unito.includes(p));
+  };
+
+  const gruppi = [];
+  const aggiungi = (titolo, icona, voci) => { if (voci.length) gruppi.push({ titolo, icona, voci }); };
+
+  aggiungi('Lavori', '🔨', iLavori().filter((t) => dentro(t.titolo, t.note, t.categoria))
+    .sort(perUrgenza).map((t) => ({ testo: t.titolo, sotto: [t.stato, t.scadenza ? etichettaData(t.scadenza) : '',
+      persona(t.assegnato_a)].filter(Boolean).join(' · '), apri: { tipo: 'attivita', id: t.id } })));
+
+  aggiungi('Routine', '☀️', leRoutine().filter((t) => dentro(t.titolo, t.note))
+    .map((t) => ({ testo: t.titolo, sotto: momentoDi(t) + ' · ' + persona(t.assegnato_a),
+      apri: { tipo: 'attivita', id: t.id } })));
+
+  aggiungi('Note del registro', '📓', leNote().filter((t) => dentro(t.titolo, t.note, nomeAnimale(t.animale_id)))
+    .map((t) => ({ testo: t.titolo, sotto: [oraLunga(t.creato_il), nomeAnimale(t.animale_id)].filter(Boolean).join(' · '),
+      apri: { tipo: 'attivita', id: t.id } })));
+
+  aggiungi('Spesa', '🛒', laSpesa().filter((t) => dentro(t.titolo))
+    .map((t) => ({ testo: t.titolo, sotto: t.stato === 'Completato' ? 'comprato' : 'da comprare',
+      apri: { tipo: 'attivita', id: t.id } })));
+
+  aggiungi('Animali', '🐄', animali.filter((a) => dentro(a.nome, a.specie, a.razza, a.codice_stalla, a.note))
+    .map((a) => ({ testo: a.nome, sotto: [a.specie, a.razza, a.codice_stalla].filter(Boolean).join(' · '),
+      apri: { tipo: 'animale', id: a.id } })));
+
+  aggiungi('Interventi', '🩺', interventi.filter((x) => dentro(x.tipo_evento, x.descrizione, x.nome_veterinario, nomeAnimale(x.animale_id)))
+    .map((x) => ({ testo: x.tipo_evento + (nomeAnimale(x.animale_id) ? ' — ' + nomeAnimale(x.animale_id) : ''),
+      sotto: [x.data_evento ? x.data_evento.split('-').reverse().join('/') : '', x.nome_veterinario,
+              x.costo ? euro(x.costo) : ''].filter(Boolean).join(' · '),
+      apri: { tipo: 'intervento', id: x.id } })));
+
+  aggiungi('Contatti', '📞', contatti.filter((c) => dentro(c.nome, c.ruolo, c.telefono, c.note))
+    .map((c) => ({ testo: c.nome, sotto: [c.ruolo, c.telefono].filter(Boolean).join(' · '),
+      apri: { tipo: 'contatti' } })));
+
+  const quanti = gruppi.reduce((s, g) => s + g.voci.length, 0);
+  return { gruppi, quanti };
+}
+
+function disegnaRisultati(testo) {
+  const cont = $('#risultati');
+  if (!cont) return;
+  const r = cercaTutto(testo);
+  if (!r) {
+    cont.innerHTML = `<p class="scheda text-center font-semibold py-6">
+      Scrivi qualcosa: cerco fra lavori, routine, note, spesa, animali, interventi e contatti.</p>`;
+    return;
+  }
+  if (!r.quanti) {
+    cont.innerHTML = `<p class="scheda text-center font-bold py-8">Nessun risultato per “${pul(testo)}”</p>`;
+    return;
+  }
+  cont.innerHTML = `<p class="text-sm font-bold px-1">${r.quanti} ${r.quanti === 1 ? 'risultato' : 'risultati'}</p>`
+    + r.gruppi.map((g) => `<section>
+        <h3 class="titolo-sez mt-3">${g.icona} ${g.titolo} <span class="conta">${g.voci.length}</span></h3>
+        <div class="space-y-2">
+          ${g.voci.map((v) => `<button type="button" class="scheda scheda-fitta tocca w-full text-left"
+              data-trovato="${pul(v.apri.tipo)}" data-trovato-id="${pul(v.apri.id || '')}">
+              <span class="block font-bold">${pul(v.testo)}</span>
+              ${v.sotto ? `<span class="block text-xs font-semibold mt-0.5" style="color:var(--inchiostro2)">${pul(v.sotto)}</span>` : ''}
+            </button>`).join('')}
+        </div>
+      </section>`).join('');
+}
+
+function apriRicerca() {
+  modo = 'ricerca';
+  $('#pannello-titolo').textContent = 'Cerca';
+  $('#pannello-corpo').innerHTML = `
+    <input id="campo-cerca" class="campo" type="search" autocomplete="off"
+           placeholder="Nome, parola, codice stalla…" value="">
+    <div id="risultati" class="space-y-2"></div>`;
+  disegnaRisultati('');
+  apriPannello();
+  const campo = $('#campo-cerca');
+  campo.addEventListener('input', () => disegnaRisultati(campo.value));
+  setTimeout(() => campo.focus(), 150);
+}
+
+function apriTrovato(tipo, id) {
+  if (tipo === 'attivita') { apriModifica(id); return; }
+  if (tipo === 'animale') { vista = 'animali'; disegna(); apriAnimale(id); return; }
+  if (tipo === 'intervento') {
+    const x = interventi.find((y) => y.id === id);
+    if (x) { vista = 'animali'; disegna(); apriAnimale(x.animale_id); }
+    return;
+  }
+  if (tipo === 'contatti') { apriContatti(); return; }
+}
+
 function apriContatti() {
   modo = 'contatti';
   $('#pannello-titolo').textContent = 'Contatti utili';
@@ -2659,7 +2766,7 @@ function disegnaImpostazioni() {
    EVENTI
    ========================================================================== */
 document.addEventListener('click', (ev) => {
-  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra],[data-scheda],[data-animale-nota]');
+  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra],[data-scheda],[data-animale-nota],[data-trovato]');
   if (!el) return;
 
   if (el.dataset.vista) {
@@ -2671,6 +2778,7 @@ document.addEventListener('click', (ev) => {
   if (el.dataset.miei)    { filtroMiei = el.dataset.miei; disegna(); return; }
   if (el.dataset.filtroReg) { filtroReg = el.dataset.filtroReg; disegna(); return; }
   if (el.dataset.scheda)    { schedaStorico = el.dataset.scheda; disegna(); return; }
+  if (el.dataset.trovato)   { apriTrovato(el.dataset.trovato, el.dataset.trovatoId); return; }
   if (el.dataset.io)      { io = el.dataset.io; localStorage.setItem('fattoria_io', io); disegnaImpostazioni(); disegna(); return; }
   if (el.dataset.sono)    { impostaIdentita(el.dataset.sono); return; }
   if (el.dataset.animale) { apriAnimale(el.dataset.animale); return; }
@@ -2898,6 +3006,7 @@ $('#aggiungi').addEventListener('click', () => {
   else if (vista === 'spesa')    apriNuovo('Spesa');
   else apriNuovo('Lavoro', vista === 'oggi' && calSel !== OGGI ? calSel : '');
 });
+$('#bot-cerca').addEventListener('click', apriRicerca);
 $('#bot-avvisi').addEventListener('click', apriAvvisi);
 $('#bot-impostazioni').addEventListener('click', apriImpostazioni);
 $('#bot-io').addEventListener('click', apriImpostazioni);
