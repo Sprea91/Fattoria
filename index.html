@@ -417,6 +417,7 @@ let attivita   = [];
 let animali    = [];
 let interventi = [];
 let contatti   = [];
+let uova       = [];              // raccolte e vendite delle uova
 let iscrizioni = [];              // dispositivi che ricevono le notifiche
 let regSW      = null;            // service worker registrato
 let diario     = [];              // chi ha fatto cosa e quando
@@ -525,7 +526,8 @@ function eta(nascita) {
 let sb = null, canale = null;
 const CHIAVE_LOCALE = 'fattoria_v4';
 const TABELLE = { attivita: 'attivita', animali: 'animali', interventi: 'interventi_animali',
-                  contatti: 'contatti', iscrizioni: 'iscrizioni_push', diario: 'diario' };
+                  contatti: 'contatti', iscrizioni: 'iscrizioni_push', diario: 'diario',
+                  uova: 'uova' };
 
 const archivioLocale = {
   leggi() { try { return JSON.parse(localStorage.getItem(CHIAVE_LOCALE)) || null; } catch { return null; } },
@@ -545,10 +547,10 @@ const archivioLocale = {
     }
     return { attivita: d.attivita || [], animali: d.animali || [], interventi: d.interventi || [],
              contatti: d.contatti || [], iscrizioni: d.iscrizioni || [],
-             diario: (d.diario || []).slice(-400).reverse() };
+             diario: (d.diario || []).slice(-400).reverse(), uova: d.uova || [] };
   },
   async inserisci(coll, riga) {
-    const d = this.leggi() || { attivita: [], animali: [], interventi: [], contatti: [] };
+    const d = this.leggi() || { attivita: [], animali: [], interventi: [], contatti: [], uova: [] };
     const r = { id: crypto.randomUUID(), creato_il: new Date().toISOString(), ...riga };
     (d[coll] = d[coll] || []).push(r); this.scrivi(d); return r;
   },
@@ -594,8 +596,15 @@ const archivioRemoto = {
       const r = await sb.from(TABELLE.diario).select('*').order('quando', { ascending: false }).limit(400);
       if (!r.error) di = r.data || [];
     } catch (e) {}
+    // come per le iscrizioni: se la tabella non c'è ancora, l'app non deve
+    // rompersi, semplicemente la sezione resta vuota
+    let uo = [];
+    try {
+      const r = await sb.from(TABELLE.uova).select('*').order('data', { ascending: false });
+      if (!r.error) uo = r.data || [];
+    } catch (e) {}
     return { attivita: a.data || [], animali: an.data || [], interventi: iv.data || [],
-             contatti: co.data || [], iscrizioni: isc, diario: di };
+             contatti: co.data || [], iscrizioni: isc, diario: di, uova: uo };
   },
   async inserisci(coll, riga) {
     const { data, error } = await sb.from(TABELLE[coll]).insert(riga).select().single();
@@ -624,7 +633,8 @@ const archivioRemoto = {
 
 let archivio = archivioLocale;
 const elenco = { attivita: () => attivita, animali: () => animali, interventi: () => interventi,
-                 contatti: () => contatti, iscrizioni: () => iscrizioni, diario: () => diario };
+                 contatti: () => contatti, iscrizioni: () => iscrizioni, diario: () => diario,
+                 uova: () => uova };
 
 /* ==========================================================================
    DIARIO — chi ha fatto cosa e quando
@@ -3027,7 +3037,8 @@ document.addEventListener('change', (e) => {
 /* ==========================================================================
    SINCRONIZZAZIONE ISTANTANEA
    ========================================================================== */
-const COLL_DI_TABELLA = { attivita: 'attivita', animali: 'animali', interventi_animali: 'interventi', contatti: 'contatti' };
+const COLL_DI_TABELLA = { attivita: 'attivita', animali: 'animali', interventi_animali: 'interventi',
+                          contatti: 'contatti', uova: 'uova' };
 
 function avviaSincronia() {
   canale = sb.channel('fattoria-live');
@@ -3041,6 +3052,7 @@ function avviaSincronia() {
           if (coll === 'animali') animali = animali.filter((x) => x.id !== id);
           if (coll === 'interventi') interventi = interventi.filter((x) => x.id !== id);
           if (coll === 'contatti') contatti = contatti.filter((x) => x.id !== id);
+          if (coll === 'uova') uova = uova.filter((x) => x.id !== id);
         }
       } else if (p.new) metti(coll, p.new);
       if (caricoRotto) { caricoRotto = false; ricarica(false); return; }
@@ -3066,6 +3078,7 @@ async function ricarica(conMessaggio) {
     attivita = d.attivita; animali = d.animali; interventi = d.interventi; contatti = d.contatti;
     iscrizioni = d.iscrizioni || [];
     diario = d.diario || [];
+    uova = d.uova || [];
     caricoRotto = false; disegna();
     if (conMessaggio) avvisa('Dati aggiornati');
   } catch (e) {
