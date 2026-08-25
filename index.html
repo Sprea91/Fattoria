@@ -1997,8 +1997,30 @@ function riquadroConti() {
     </div>`;
 }
 
+function elencoMovimenti() {
+  const c = contiUova(periodoUova);
+  if (!c.movimenti.length) {
+    return `<p class="scheda text-center font-bold py-8">Nessun movimento in questo periodo.<br>
+      <span class="font-semibold text-sm">Con il pulsante ＋ segni una raccolta o una vendita.</span></p>`;
+  }
+  const riga = (u) => {
+    const vendita = u.tipo === 'Vendita';
+    const soldi = vendita ? euro(Number(u.quantita) * Number(u.prezzo_unitario || 0)) : null;
+    return `<div class="riga" data-uovo="${u.id}">
+        <span class="text-xl shrink-0">${vendita ? '💶' : '🧺'}</span>
+        <div class="flex-1 min-w-0">
+          <p class="font-black">${u.quantita} uova${vendita && u.cliente ? ' · ' + pul(u.cliente) : ''}</p>
+          <p class="text-xs font-semibold" style="color:var(--inchiostro2)">${pul(etichettaData(u.data))}</p>
+        </div>
+        ${soldi ? `<span class="font-black tabellare shrink-0">${soldi}</span>` : ''}
+      </div>`;
+  };
+  return `<section><h2 class="titolo-sez">📒 Movimenti <span class="conta">${c.movimenti.length}</span></h2>
+      <div class="space-y-2.5">${c.movimenti.map(riga).join('')}</div></section>`;
+}
+
 function disegnaUova() {
-  $('#corpo-uova').innerHTML = sceltaPeriodo() + riquadroConti();
+  $('#corpo-uova').innerHTML = sceltaPeriodo() + riquadroConti() + elencoMovimenti();
 }
 
 /* ==========================================================================
@@ -2159,7 +2181,8 @@ async function spostaRoutine(id, direzione) {
 }
 
 const NOME_OGGETTO = { attivita: 'Attività', animali: 'Animale', interventi: 'Intervento',
-                       contatti: 'Contatto', iscrizioni: 'Dispositivo', diario: 'Diario' };
+                       contatti: 'Contatto', iscrizioni: 'Dispositivo', diario: 'Diario',
+                       uova: 'Uova' };
 
 // come elimina(), ma senza il messaggio: lo mostra il gesto, con Annulla
 async function eliminaSilenzioso(coll, id) { return elimina(coll, id, true); }
@@ -2168,7 +2191,8 @@ async function elimina(coll, id, silenzioso) {
   try {
     // prendo il titolo prima di cancellare, altrimenti nel diario resta un buco
     const riga = (elenco[coll] ? elenco[coll]() : []).find((x) => x.id === id) || {};
-    const comeSiChiamava = riga.titolo || riga.nome || riga.tipo_evento || riga.dispositivo || '';
+    const comeSiChiamava = riga.titolo || riga.nome || riga.tipo_evento || riga.dispositivo
+                           || (riga.quantita ? riga.quantita + ' uova' : '');
     const tipoRiga = coll === 'attivita' ? (riga.tipo || 'Attività') : NOME_OGGETTO[coll];
     await archivio.elimina(coll, id);
     if (coll !== 'diario') annota('Eliminato', tipoRiga, comeSiChiamava, null, null);
@@ -2176,6 +2200,7 @@ async function elimina(coll, id, silenzioso) {
     if (coll === 'animali') { animali = animali.filter((x) => x.id !== id); interventi = interventi.filter((x) => x.animale_id !== id); }
     if (coll === 'interventi') interventi = interventi.filter((x) => x.id !== id);
     if (coll === 'contatti') contatti = contatti.filter((x) => x.id !== id);
+    if (coll === 'uova') uova = uova.filter((x) => x.id !== id);
     if (coll === 'iscrizioni') iscrizioni = iscrizioni.filter((x) => x.id !== id);
     disegna();
     if (!silenzioso) avvisa('Eliminato');
@@ -2229,6 +2254,15 @@ function apriIntervento(id) {
           descrizione: x.descrizione || '', nome_veterinario: x.nome_veterinario || '',
           costo: x.costo ?? '', foto_url: x.foto_ricevuta_url || null,
           prossimo: 'Nessuno', prossimo_il: x.prossimo_il || '', avevaProssimo: !!x.prossimo_il };
+  disegnaPannello(); apriPannello();
+}
+
+function apriMovimentoUova(id) {
+  const u = uova.find((x) => x.id === id); if (!u) return;
+  modo = 'uova-modifica'; idAperto = id; tipoAperto = u.tipo || 'Raccolta'; fotoScelta.dati = null;
+  mod = { data_uova: u.data || OGGI, quantita: u.quantita ?? '',
+          prezzo: u.prezzo_unitario ?? prezzoProposto(), cliente: u.cliente || '',
+          note: u.note || '' };
   disegnaPannello(); apriPannello();
 }
 
@@ -2988,7 +3022,7 @@ function disegnaImpostazioni() {
    EVENTI
    ========================================================================== */
 document.addEventListener('click', (ev) => {
-  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra],[data-scheda],[data-animale-nota],[data-trovato],[data-periodo],[data-tipo-uova],[data-uova-meno],[data-uova-piu]');
+  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra],[data-scheda],[data-animale-nota],[data-trovato],[data-periodo],[data-tipo-uova],[data-uova-meno],[data-uova-piu],[data-uovo]');
   if (!el) return;
 
   if (el.dataset.vista) {
@@ -3004,6 +3038,7 @@ document.addEventListener('click', (ev) => {
   if (el.dataset.tipoUova) { leggiCampi(); tipoAperto = el.dataset.tipoUova; disegnaPannello(); return; }
   if (el.dataset.uovaMeno) { leggiCampi(); mod.quantita = Math.max(0, Number(mod.quantita || 0) - 1); disegnaPannello(); return; }
   if (el.dataset.uovaPiu)  { leggiCampi(); mod.quantita = Number(mod.quantita || 0) + 1; disegnaPannello(); return; }
+  if (el.dataset.uovo) { apriMovimentoUova(el.dataset.uovo); return; }
   if (el.dataset.trovato)   { apriTrovato(el.dataset.trovato, el.dataset.trovatoId); return; }
   if (el.dataset.io)      { io = el.dataset.io; localStorage.setItem('fattoria_io', io); disegnaImpostazioni(); disegna(); return; }
   if (el.dataset.sono)    { impostaIdentita(el.dataset.sono); return; }
@@ -3096,6 +3131,7 @@ document.addEventListener('click', (ev) => {
         const x = idAperto, k = tipoAperto, an = animaleAperto;
         if (k === 'Animale') { chiudiPannello(); elimina('animali', x); }
         else if (k === 'Intervento') { elimina('interventi', x).then(() => apriAnimale(an)); }
+        else if (k === 'Raccolta' || k === 'Vendita') { chiudiPannello(); elimina('uova', x); }
         else { chiudiPannello(); elimina('attivita', x); }
       } return;
   }
