@@ -21,7 +21,10 @@ const VAPID_PUBBLICA = process.env.VAPID_PUBBLICA
 // trim: se il segreto viene incollato con un fine riga o uno spazio in coda,
 // web-push lo rifiuta ("must be a URL safe Base 64")
 const VAPID_PRIVATA = (process.env.VAPID_PRIVATA || '').trim().replace(/[^A-Za-z0-9\-_]/g, '');
-const CONTATTO = process.env.VAPID_CONTATTO || 'mailto:cqindustrializzazione@medacta.ch';
+// Indirizzo di riferimento richiesto dallo standard delle notifiche push: i
+// servizi di Apple e Google lo usano per avvisare il proprietario se qualcosa
+// non va. Questo è un progetto privato: niente indirizzi di lavoro.
+const CONTATTO = process.env.VAPID_CONTATTO || 'mailto:stefano_spreafico@yahoo.it';
 const FORZA = String(process.env.FORZA || '').toLowerCase() === 'true';
 // Prova a vuoto: fa tutto il giro (legge il database, compone il messaggio) ma
 // non manda niente ai telefoni. Serve per controllare che la catena funzioni
