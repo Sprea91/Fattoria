@@ -1,22 +1,32 @@
 name: Notifiche del mattino
 
-# Due orari perché GitHub lavora in UTC: uno vale per l'ora legale, l'altro
-# per l'ora solare. Lo script controlla che in Italia siano le 6 e invia solo
-# in quel caso, così non arrivano due notifiche.
-# GitHub, sul piano gratuito, PUO SALTARE le esecuzioni pianificate quando e
-# sotto carico, e i minuti :00 e :30 sono i piu congestionati. Percio:
-#  - usiamo minuti "dispari", meno affollati
-#  - proviamo piu volte lungo la mattina
-# Lo script invia una volta sola: chi ha gia ricevuto oggi viene escluso, quindi
-# i tentativi in piu non producono notifiche doppie ma solo un recupero se il
+# Gli orari sono in UTC perché GitHub lavora in UTC. Lo script controlla che
+# in Italia sia dentro la finestra del mattino e invia solo in quel caso, così
+# non arrivano notifiche doppie né notifiche fuori orario.
+#
+# GitHub, sul piano gratuito, PUÒ SALTARE o RITARDARE le esecuzioni pianificate
+# quando è sotto carico: i ritardi misurati sono stati fra i 20 e i 50 minuti.
+# Perciò:
+#  - usiamo minuti "dispari", meno affollati di :00 e :30
+#  - proviamo sette volte lungo la mattina
+#  - la finestra dello script arriva fino alle 11, così anche un tentativo
+#    partito con cinquanta minuti di ritardo fa ancora in tempo
+#
+# Lo script invia una volta sola: chi ha già ricevuto oggi viene escluso, quindi
+# i tentativi in più non producono notifiche doppie, solo un recupero se il
 # primo tentativo viene saltato.
+#
+# D'inverno i due tentativi delle 5 UTC cadono alle 6 italiane, prima
+# dell'apertura della finestra: si escludono da soli, senza fare danno.
 on:
   schedule:
-    - cron: '17 5 * * *'   # 07:17 in Italia d'estate  (06:17 d'inverno)
-    - cron: '43 5 * * *'   # 07:43 d'estate
+    - cron: '17 5 * * *'   # 07:17 d'estate / 06:17 d'inverno
+    - cron: '43 5 * * *'   # 07:43 d'estate / 06:43 d'inverno
     - cron: '17 6 * * *'   # 08:17 d'estate / 07:17 d'inverno
     - cron: '43 6 * * *'   # 08:43 d'estate / 07:43 d'inverno
-    - cron: '23 7 * * *'   # ultimo recupero: 09:23 d'estate / 08:23 d'inverno
+    - cron: '17 7 * * *'   # 09:17 d'estate / 08:17 d'inverno
+    - cron: '43 7 * * *'   # 09:43 d'estate / 08:43 d'inverno
+    - cron: '17 8 * * *'   # ultimo recupero: 10:17 d'estate / 09:17 d'inverno
   workflow_dispatch:        # pulsante per provare quando vuoi
 
 permissions:
@@ -32,10 +42,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Scarico il codice
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Preparo Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
 

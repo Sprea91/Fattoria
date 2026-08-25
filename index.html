@@ -2653,7 +2653,8 @@ function bloccoNotifiche() {
     const mia = iscrizioni.find((x) => x.endpoint === endpointLocale) || {};
     corpo = `<p class="mt-1 font-bold" style="color:var(--verde)">✓ Attive su questo telefono</p>
       <p class="text-sm font-semibold mt-1" style="color:var(--inchiostro2)">
-        Ogni mattina fra le 7:15 e le 9:30 arriva il riassunto della giornata: scadenze, appuntamenti e cose da comprare.
+        Ogni mattina arriva il riassunto della giornata: scadenze, appuntamenti e cose da comprare.
+        Di solito verso le 7:30; se il servizio è in ritardo, al più tardi entro le 11.
         ${mia.ultimo_invio ? 'Ultimo arrivato: ' + pul(oraLunga(mia.ultimo_invio)) + '.' : 'Ancora nessuno ricevuto.'}</p>
       <div class="flex gap-2 mt-2">
         <button class="bot bot-chiaro flex-1" data-azione="prova-notifica">🔔 Prova adesso</button>

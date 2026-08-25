@@ -26,8 +26,11 @@ const FORZA = String(process.env.FORZA || '').toLowerCase() === 'true';
 // Finestra oraria italiana in cui il riassunto può partire. Non un'ora secca:
 // le esecuzioni pianificate di GitHub possono essere saltate o slittare, e con
 // una finestra il tentativo successivo recupera.
+// Il limite è le 11 e non le 10 perché i ritardi misurati arrivano a cinquanta
+// minuti: con la finestra stretta l'ultimo tentativo della mattina partiva
+// troppo tardi e si escludeva da solo, lasciando la giornata senza riassunto.
 const ORA_DA  = Number(process.env.ORA_DA  || 7);
-const ORA_A   = Number(process.env.ORA_A   || 10);
+const ORA_A   = Number(process.env.ORA_A   || 11);
 const INDIRIZZO_APP = process.env.INDIRIZZO_APP || 'https://sprea91.github.io/Fattoria/';
 
 const intestazioni = {
