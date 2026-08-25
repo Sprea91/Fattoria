@@ -17,7 +17,7 @@
 -- MARCIA INDIETRO: schema-riapri-permessi.sql riporta tutto come prima.
 -- ============================================================================
 
--- 1) Via TUTTE le regole esistenti sulle sei tabelle, qualunque nome abbiano.
+-- 1) Via TUTTE le regole esistenti sulle sette tabelle, qualunque nome abbiano.
 do $$
 declare r record;
 begin
@@ -25,7 +25,7 @@ begin
     select tablename, policyname
       from pg_policies
      where schemaname = 'public'
-       and tablename in ('attivita','animali','interventi_animali','contatti','iscrizioni_push','diario')
+       and tablename in ('attivita','animali','interventi_animali','contatti','iscrizioni_push','diario','uova')
   loop
     execute format('drop policy %I on public.%I', r.policyname, r.tablename);
   end loop;
@@ -35,7 +35,7 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['attivita','animali','interventi_animali','contatti','iscrizioni_push','diario'] loop
+  foreach t in array array['attivita','animali','interventi_animali','contatti','iscrizioni_push','diario','uova'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('create policy "%s_entrati_leggono"    on public.%I for select to authenticated using (true)', t, t);
     execute format('create policy "%s_entrati_scrivono"   on public.%I for insert to authenticated with check (true)', t, t);
@@ -64,12 +64,12 @@ create policy "foto_carica"  on storage.objects for insert to authenticated with
 create policy "foto_elimina" on storage.objects for delete to authenticated using (bucket_id = 'farm-photos');
 
 -- ---------------------------------------------------------------------------
--- VERIFICA: deve elencare 24 righe, tutte con nome "..._entrati_..." e
+-- VERIFICA: deve elencare 28 righe, tutte con nome "..._entrati_..." e
 -- ruolo {authenticated}. Se ne compare una con ruolo {public}, e' rimasta
 -- aperta.
 -- ---------------------------------------------------------------------------
 select tablename, policyname, roles, cmd
   from pg_policies
  where schemaname = 'public'
-   and tablename in ('attivita','animali','interventi_animali','contatti','iscrizioni_push','diario')
+   and tablename in ('attivita','animali','interventi_animali','contatti','iscrizioni_push','diario','uova')
  order by tablename, cmd;

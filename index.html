@@ -2,7 +2,7 @@
   ============================================================================
   FATTORIA TASKS — v4 (file unico, tutto in italiano)
   ============================================================================
-  Barra in basso:  Oggi · Animali · Lavori · Registro · Spesa
+  Barra in basso:  Oggi · Animali · Uova · Lavori · Registro · Spesa
   Home (Oggi):     Calendario e scadenze -> Scadenze -> Attività del giorno -> Routine
   In alto:         🔔 notifiche (scadenze, spesa, routine) · ⚙️ impostazioni · avatar
 
@@ -172,7 +172,7 @@
 
   /* ---------- barra in basso e bottone ---------- */
   #barra { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-           display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+           display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
            background: var(--scheda); border-top: 1.5px solid var(--bordo);
            padding-bottom: env(safe-area-inset-bottom, 0px); }
   .voce { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
@@ -249,6 +249,9 @@
   .pannello { animation: su .22s cubic-bezier(.2,.8,.2,1); }
   @keyframes su { from { transform: translateY(16px); opacity: .5 } to { transform: none; opacity: 1 } }
   [hidden] { display: none !important; }
+  .tabellare { font-variant-numeric: tabular-nums; }
+  /* la riga che in questo momento è aperta nel pannello */
+  .riga-aperta { border-color: var(--verde); border-width: 2px; background: #F3F7F1; }
 </style>
 
 <body>
@@ -281,6 +284,7 @@
     <div class="text-center py-12"><div class="text-5xl animate-pulse">🌾</div><p class="mt-3 font-black text-lg">Caricamento…</p></div>
   </div></section>
   <section id="vista-animali"  hidden><div id="corpo-animali"  class="space-y-5"></div></section>
+  <section id="vista-uova"     hidden><div id="corpo-uova"     class="space-y-5"></div></section>
   <section id="vista-lavori"   hidden><div id="corpo-lavori"   class="space-y-6"></div></section>
   <section id="vista-registro" hidden><div id="corpo-registro" class="space-y-4"></div></section>
   <section id="vista-spesa"    hidden><div id="corpo-spesa"    class="space-y-5"></div></section>
@@ -292,6 +296,7 @@
 <nav id="barra" aria-label="Sezioni">
   <button class="voce" data-vista="oggi" aria-current="page"><span class="ic">🚜</span>Oggi</button>
   <button class="voce" data-vista="animali"><span class="ic">🐄</span>Animali</button>
+  <button class="voce" data-vista="uova"><span class="ic">🥚</span>Uova</button>
   <button class="voce" data-vista="lavori"><span class="ic">🔨</span>Lavori</button>
   <button class="voce" data-vista="registro"><span class="ic">📓</span>Registro</button>
   <button class="voce" data-vista="spesa"><span class="ic">🛒</span>Spesa</button>
@@ -417,6 +422,7 @@ let attivita   = [];
 let animali    = [];
 let interventi = [];
 let contatti   = [];
+let uova       = [];              // raccolte e vendite delle uova
 let iscrizioni = [];              // dispositivi che ricevono le notifiche
 let regSW      = null;            // service worker registrato
 let diario     = [];              // chi ha fatto cosa e quando
@@ -525,7 +531,8 @@ function eta(nascita) {
 let sb = null, canale = null;
 const CHIAVE_LOCALE = 'fattoria_v4';
 const TABELLE = { attivita: 'attivita', animali: 'animali', interventi: 'interventi_animali',
-                  contatti: 'contatti', iscrizioni: 'iscrizioni_push', diario: 'diario' };
+                  contatti: 'contatti', iscrizioni: 'iscrizioni_push', diario: 'diario',
+                  uova: 'uova' };
 
 const archivioLocale = {
   leggi() { try { return JSON.parse(localStorage.getItem(CHIAVE_LOCALE)) || null; } catch { return null; } },
@@ -545,10 +552,10 @@ const archivioLocale = {
     }
     return { attivita: d.attivita || [], animali: d.animali || [], interventi: d.interventi || [],
              contatti: d.contatti || [], iscrizioni: d.iscrizioni || [],
-             diario: (d.diario || []).slice(-400).reverse() };
+             diario: (d.diario || []).slice(-400).reverse(), uova: d.uova || [] };
   },
   async inserisci(coll, riga) {
-    const d = this.leggi() || { attivita: [], animali: [], interventi: [], contatti: [] };
+    const d = this.leggi() || { attivita: [], animali: [], interventi: [], contatti: [], uova: [] };
     const r = { id: crypto.randomUUID(), creato_il: new Date().toISOString(), ...riga };
     (d[coll] = d[coll] || []).push(r); this.scrivi(d); return r;
   },
@@ -594,8 +601,15 @@ const archivioRemoto = {
       const r = await sb.from(TABELLE.diario).select('*').order('quando', { ascending: false }).limit(400);
       if (!r.error) di = r.data || [];
     } catch (e) {}
+    // come per le iscrizioni: se la tabella non c'è ancora, l'app non deve
+    // rompersi, semplicemente la sezione resta vuota
+    let uo = [];
+    try {
+      const r = await sb.from(TABELLE.uova).select('*').order('data', { ascending: false });
+      if (!r.error) uo = r.data || [];
+    } catch (e) {}
     return { attivita: a.data || [], animali: an.data || [], interventi: iv.data || [],
-             contatti: co.data || [], iscrizioni: isc, diario: di };
+             contatti: co.data || [], iscrizioni: isc, diario: di, uova: uo };
   },
   async inserisci(coll, riga) {
     const { data, error } = await sb.from(TABELLE[coll]).insert(riga).select().single();
@@ -624,7 +638,8 @@ const archivioRemoto = {
 
 let archivio = archivioLocale;
 const elenco = { attivita: () => attivita, animali: () => animali, interventi: () => interventi,
-                 contatti: () => contatti, iscrizioni: () => iscrizioni, diario: () => diario };
+                 contatti: () => contatti, iscrizioni: () => iscrizioni, diario: () => diario,
+                 uova: () => uova };
 
 /* ==========================================================================
    DIARIO — chi ha fatto cosa e quando
@@ -1857,10 +1872,207 @@ function disegnaStorico() {
 }
 
 /* ==========================================================================
+   UOVA — periodi e conti
+   ========================================================================== */
+// Prezzo di partenza finché non c'è nessuna vendita da cui copiarlo.
+const PREZZO_INIZIALE = 0.60;
+
+// Quale fetta di tempo mostra il riepilogo. Le due date servono solo al tipo
+// "periodo": le altre voci si ricavano da oggi.
+let periodoUova = { tipo: 'mese', da: OGGI, a: OGGI };
+
+function estremiPeriodo(p) {
+  if (p.tipo === 'oggi') return { da: OGGI, a: OGGI };
+  if (p.tipo === 'mese') return { da: OGGI.slice(0, 8) + '01', a: OGGI };
+  if (p.tipo === 'anno') return { da: OGGI.slice(0, 4) + '-01-01', a: OGGI };
+  const da = p.da || OGGI, a = p.a || OGGI;
+  return da <= a ? { da, a } : { da: a, a: da };   // date invertite: le raddrizzo
+}
+
+const dentroPeriodo = (g, e) => !!g && g >= e.da && g <= e.a;
+
+// Conteggi all'italiana: 4.180, non 4180. euro() lo fa già per i soldi.
+const numero = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+// Giorni del periodo già passati: a metà mese la media non deve risultare
+// dimezzata da giorni che devono ancora arrivare.
+function giorniTrascorsi(e) {
+  const fine = e.a > OGGI ? OGGI : e.a;
+  if (fine < e.da) return 0;
+  const [y1, m1, g1] = e.da.split('-').map(Number);
+  const [y2, m2, g2] = fine.split('-').map(Number);
+  return Math.round((new Date(y2, m2 - 1, g2) - new Date(y1, m1 - 1, g1)) / 86400000) + 1;
+}
+
+// Il prezzo proposto è quello dell'ultima vendita registrata: sta nel
+// database, quindi è lo stesso sul telefono di tutti.
+function prezzoProposto() {
+  const vendite = uova
+    .filter((u) => u.tipo === 'Vendita' && Number(u.prezzo_unitario) > 0)
+    .sort((a, b) => String(b.data).localeCompare(String(a.data))
+                 || String(b.creato_il || '').localeCompare(String(a.creato_il || '')));
+  return vendite.length ? Number(vendite[0].prezzo_unitario) : PREZZO_INIZIALE;
+}
+
+// Quante uova risultano in casa: tutte le raccolte meno tutte le vendite, su
+// tutto l'archivio e non sul periodo mostrato, perché il periodo è solo una
+// finestra sui dati. Modificando una vendita, quella riga non conta: altrimenti
+// l'avviso scatterebbe per uova che la modifica stessa sta per restituire.
+function uovaDisponibili(escludiId) {
+  return uova.reduce((s, u) => {
+    if (escludiId && u.id === escludiId) return s;
+    const q = Number(u.quantita || 0);
+    return u.tipo === 'Raccolta' ? s + q : s - q;
+  }, 0);
+}
+
+// Il testo dell'avviso quando si vende più di quanto risulta in casa. Non
+// impedisce niente: le uova di oggi possono essere quelle raccolte ieri.
+const avvisoScorte = (disponibili) =>
+  `⚠️ In casa ne risultano ${disponibili < 0 ? 0 : disponibili}. Puoi salvare lo stesso: `
+  + "saranno di una raccolta più vecchia, oppure c'è un numero da correggere.";
+
+// Legge un prezzo scritto a mano. Il campo è di testo e non un type="number"
+// perché su un telefono italiano il tastierino decimale dà la virgola, e un
+// campo numerico con la virgola dentro restituisce stringa vuota: Number('')
+// vale zero, non "non valido", e la vendita finirebbe salvata a 0,00 euro
+// senza che nessuno se ne accorga.
+// Restituisce null se il campo è vuoto o non è un numero: chi chiama decide.
+function leggiPrezzo(grezzo) {
+  const s = String(grezzo ?? '').trim().replace(',', '.');
+  if (s === '') return null;
+  const n = Number(s);
+  return isFinite(n) && n >= 0 ? n : null;
+}
+
+function contiUova(p) {
+  const e = estremiPeriodo(p);
+  const dentro   = uova.filter((u) => dentroPeriodo(u.data, e));
+  const somma    = (righe) => righe.reduce((s, u) => s + Number(u.quantita || 0), 0);
+  const raccolte = somma(dentro.filter((u) => u.tipo === 'Raccolta'));
+  const vendite  = dentro.filter((u) => u.tipo === 'Vendita');
+  const vendute  = somma(vendite);
+  const incassato = vendite.reduce((s, u) =>
+    s + Number(u.quantita || 0) * Number(u.prezzo_unitario || 0), 0);
+
+  // Le cure hanno una data vera. Per gli animali esiste solo la data in cui
+  // sono stati inseriti nell'app: il riepilogo lo scrive, non lo nasconde.
+  const cure = interventi
+    .filter((x) => dentroPeriodo(x.data_evento, e))
+    .reduce((s, x) => s + Number(x.costo || 0), 0);
+  // creato_il arriva in UTC: tagliarne i primi dieci caratteri sposterebbe nel
+  // giorno prima tutto ciò che è stato inserito dopo le 22 d'estate.
+  const acquisti = animali
+    .filter((a) => dentroPeriodo(a.creato_il ? isoDi(new Date(a.creato_il)) : '', e))
+    .reduce((s, a) => s + Number(a.costo_acquisto || 0), 0);
+
+  const giorni = giorniTrascorsi(e);
+  return {
+    da: e.da, a: e.a,
+    raccolte, vendute,
+    restate: Math.max(0, raccolte - vendute),
+    incassato, cure, acquisti,
+    differenza: incassato - cure - acquisti,
+    media: giorni > 0 ? raccolte / giorni : 0,
+    movimenti: dentro.slice().sort((x, y) =>
+      String(y.data).localeCompare(String(x.data))
+      || String(y.creato_il || '').localeCompare(String(x.creato_il || '')))
+  };
+}
+
+/* ==========================================================================
+   UOVA — la sezione
+   ========================================================================== */
+const NOMI_PERIODO = { oggi: 'Oggi', mese: 'Questo mese', anno: 'Quest\'anno', periodo: 'Periodo scelto' };
+
+function sceltaPeriodo() {
+  // whitespace-nowrap e shrink-0: "Quest'anno" non va a capo, e su uno schermo
+  // stretto la fila scorre invece di sbordare dalla scheda.
+  const bottone = (t) => `<button class="bot ${periodoUova.tipo === t ? 'bot-verde' : 'bot-chiaro'} bot-piccolo shrink-0 whitespace-nowrap"
+      data-periodo="${t}">${NOMI_PERIODO[t]}</button>`;
+  const date = periodoUova.tipo !== 'periodo' ? '' : `
+    <div class="flex items-end gap-2 mt-2">
+      <div class="flex-1"><label class="didascalia" for="p-da">Dal</label>
+        <input id="p-da" type="date" class="campo mt-1" value="${periodoUova.da}"></div>
+      <div class="flex-1"><label class="didascalia" for="p-a">Al</label>
+        <input id="p-a" type="date" class="campo mt-1" value="${periodoUova.a}"></div>
+    </div>`;
+  return `<div class="scheda">
+      <div class="flex gap-1.5 overflow-x-auto no-sb">${['oggi', 'mese', 'anno', 'periodo'].map(bottone).join('')}</div>
+      ${date}
+    </div>`;
+}
+
+function riquadroConti() {
+  const c = contiUova(periodoUova);
+  const riga = (etichetta, valore, forte) => `<div class="flex items-baseline gap-2 ${forte ? 'font-black' : 'font-bold'}">
+      <span class="flex-1 min-w-0">${etichetta}</span>
+      <span class="shrink-0 tabellare">${valore}</span></div>`;
+  const attivo = c.differenza >= 0;
+  return `<div class="scheda space-y-1.5">
+      <p class="didascalia">${NOMI_PERIODO[periodoUova.tipo]}</p>
+      <p class="text-sm font-semibold" style="color:var(--inchiostro2)">
+        Prezzo attuale ${euro(prezzoProposto())} a uovo</p>
+
+      <div class="pt-2 space-y-1">
+        ${riga('Raccolte', numero(c.raccolte))}
+        ${riga('Vendute', numero(c.vendute))}
+        ${riga('Non vendute nel periodo', numero(c.restate))}
+      </div>
+
+      <div class="pt-2 space-y-1" style="border-top:1.5px solid var(--bordo)">
+        ${riga('Incassato', euro(c.incassato) || '0,00 €')}
+        ${riga('Cure e veterinario', euro(c.cure) || '0,00 €')}
+        ${riga('Acquisto animali', euro(c.acquisti) || '0,00 €')}
+      </div>
+
+      <div class="pt-2" style="border-top:1.5px solid var(--bordo);color:${attivo ? 'var(--verde-cupo)' : 'var(--allarme)'}">
+        ${riga(attivo ? 'In attivo' : 'In passivo', (attivo ? '+' : '') + euro(c.differenza), true)}
+      </div>
+
+      <p class="text-xs font-semibold pt-2" style="color:var(--inchiostro2)">
+        Media ${c.media < 10 ? c.media.toFixed(1).replace('.', ',') : numero(c.media)} uova al giorno ·
+        l'acquisto degli animali è contato per data di inserimento nell'app,
+        che è l'unica data disponibile.</p>
+    </div>`;
+}
+
+function elencoMovimenti() {
+  const c = contiUova(periodoUova);
+  if (!c.movimenti.length) {
+    return `<p class="scheda text-center font-bold py-8">Nessun movimento in questo periodo.<br>
+      <span class="font-semibold text-sm">Con il pulsante ＋ segni una raccolta o una vendita.</span></p>`;
+  }
+  const riga = (u) => {
+    const vendita = u.tipo === 'Vendita';
+    const soldi = vendita ? euro(Number(u.quantita) * Number(u.prezzo_unitario || 0)) : null;
+    // "tocca" e role/tabindex come ogni altra riga dell'app: senza, il dito non
+    // riceve nessuna risposta e la riga non sembra nemmeno toccabile.
+    const aperta = modo === 'uova-modifica' && idAperto === u.id;
+    return `<div class="riga tocca ${aperta ? 'riga-aperta' : ''}" data-uovo="${u.id}"
+                 role="button" tabindex="0">
+        <span class="text-xl shrink-0">${vendita ? '💶' : '🧺'}</span>
+        <div class="flex-1 min-w-0">
+          <p class="font-black">${u.quantita} uova${vendita && u.cliente ? ' · ' + pul(u.cliente) : ''}</p>
+          <p class="text-xs font-semibold" style="color:var(--inchiostro2)">${pul(etichettaData(u.data))}</p>
+        </div>
+        ${soldi ? `<span class="font-black tabellare shrink-0">${soldi}</span>` : ''}
+      </div>`;
+  };
+  return `<section><h2 class="titolo-sez">📒 Movimenti <span class="conta">${c.movimenti.length}</span></h2>
+      <div class="space-y-2.5">${c.movimenti.map(riga).join('')}</div></section>`;
+}
+
+function disegnaUova() {
+  $('#corpo-uova').innerHTML = sceltaPeriodo() + riquadroConti() + elencoMovimenti();
+}
+
+/* ==========================================================================
    DISEGNO GENERALE
    ========================================================================== */
-const VISTE = ['oggi', 'animali', 'lavori', 'registro', 'spesa', 'storico'];
-const ETICHETTA_BOT = { oggi: 'Attività', animali: 'Animale', lavori: 'Attività', registro: 'Nota', spesa: 'Spesa', storico: 'Attività' };
+const VISTE = ['oggi', 'animali', 'uova', 'lavori', 'registro', 'spesa', 'storico'];
+const ETICHETTA_BOT = { oggi: 'Attività', animali: 'Animale', uova: 'Uova', lavori: 'Attività',
+                        registro: 'Nota', spesa: 'Spesa', storico: 'Attività' };
 
 function disegna() {
   if (caricoRotto) return;
@@ -1874,6 +2086,7 @@ function disegna() {
 
   if (vista === 'oggi')     disegnaOggi();
   if (vista === 'animali')  disegnaAnimali();
+  if (vista === 'uova')     disegnaUova();
   if (vista === 'lavori')   disegnaLavori();
   if (vista === 'registro') disegnaRegistro();
   if (vista === 'spesa')    disegnaSpesa();
@@ -2012,7 +2225,8 @@ async function spostaRoutine(id, direzione) {
 }
 
 const NOME_OGGETTO = { attivita: 'Attività', animali: 'Animale', interventi: 'Intervento',
-                       contatti: 'Contatto', iscrizioni: 'Dispositivo', diario: 'Diario' };
+                       contatti: 'Contatto', iscrizioni: 'Dispositivo', diario: 'Diario',
+                       uova: 'Uova' };
 
 // come elimina(), ma senza il messaggio: lo mostra il gesto, con Annulla
 async function eliminaSilenzioso(coll, id) { return elimina(coll, id, true); }
@@ -2021,14 +2235,19 @@ async function elimina(coll, id, silenzioso) {
   try {
     // prendo il titolo prima di cancellare, altrimenti nel diario resta un buco
     const riga = (elenco[coll] ? elenco[coll]() : []).find((x) => x.id === id) || {};
-    const comeSiChiamava = riga.titolo || riga.nome || riga.tipo_evento || riga.dispositivo || '';
-    const tipoRiga = coll === 'attivita' ? (riga.tipo || 'Attività') : NOME_OGGETTO[coll];
+    const comeSiChiamava = riga.titolo || riga.nome || riga.tipo_evento || riga.dispositivo
+                           || (riga.quantita ? riga.quantita + ' uova' : '');
+    // le uova portano già il loro tipo (Raccolta o Vendita): nel diario deve
+    // comparire quello, non la parola generica, come per le attività
+    const tipoRiga = (coll === 'attivita' || coll === 'uova')
+      ? (riga.tipo || NOME_OGGETTO[coll]) : NOME_OGGETTO[coll];
     await archivio.elimina(coll, id);
     if (coll !== 'diario') annota('Eliminato', tipoRiga, comeSiChiamava, null, null);
     if (coll === 'attivita') attivita = attivita.filter((x) => x.id !== id);
     if (coll === 'animali') { animali = animali.filter((x) => x.id !== id); interventi = interventi.filter((x) => x.animale_id !== id); }
     if (coll === 'interventi') interventi = interventi.filter((x) => x.id !== id);
     if (coll === 'contatti') contatti = contatti.filter((x) => x.id !== id);
+    if (coll === 'uova') uova = uova.filter((x) => x.id !== id);
     if (coll === 'iscrizioni') iscrizioni = iscrizioni.filter((x) => x.id !== id);
     disegna();
     if (!silenzioso) avvisa('Eliminato');
@@ -2046,7 +2265,8 @@ function apriNuovo(tipo, scadenza) {
           specie: 'Bovino', razza: '', data_nascita: '', codice_stalla: '', costo_acquisto: '',
           tipo_evento: 'Visita veterinaria', data_evento: OGGI, descrizione: '', nome_veterinario: '', costo: '',
           prossimo: 'Nessuno', prossimo_il: '',
-          ruolo: 'Veterinario', telefono: '', extra: false };
+          ruolo: 'Veterinario', telefono: '',
+          data_uova: OGGI, quantita: '', prezzo: prezzoProposto(), cliente: '', extra: false };
   disegnaPannello(); apriPannello();
 }
 
@@ -2084,10 +2304,22 @@ function apriIntervento(id) {
   disegnaPannello(); apriPannello();
 }
 
+function apriMovimentoUova(id) {
+  const u = uova.find((x) => x.id === id); if (!u) return;
+  modo = 'uova-modifica'; idAperto = id; tipoAperto = u.tipo || 'Raccolta'; fotoScelta.dati = null;
+  mod = { data_uova: u.data || OGGI, quantita: u.quantita ?? '',
+          prezzo: u.prezzo_unitario ?? prezzoProposto(), cliente: u.cliente || '',
+          note: u.note || '' };
+  disegnaPannello(); apriPannello(); disegnaUova();
+}
+
 function apriPannello() { $('#pannello').hidden = false; document.body.style.overflow = 'hidden'; }
 function chiudiPannello() {
   $('#pannello').hidden = true; document.body.style.overflow = '';
   modo = null; idAperto = null; fotoScelta.dati = null;
+  // la riga delle uova resta segnata finché il pannello è aperto: chiudendolo
+  // il segno va tolto, e solo un ridisegno lo toglie
+  if (vista === 'uova') disegnaUova();
 }
 
 function leggiCampi() {
@@ -2097,7 +2329,9 @@ function leggiCampi() {
     razza: g('#m-razza'), data_nascita: g('#m-nascita'), codice_stalla: g('#m-codice'),
     costo_acquisto: g('#m-costo-acquisto'), descrizione: g('#m-descrizione'),
     nome_veterinario: g('#m-veterinario'), costo: g('#m-costo'), data_evento: g('#m-data-evento'),
-    prossimo_il: g('#m-prossimo'), telefono: g('#m-telefono')
+    prossimo_il: g('#m-prossimo'), telefono: g('#m-telefono'),
+    data_uova: g('#m-data-uova'), quantita: g('#m-quantita'),
+    prezzo: g('#m-prezzo'), cliente: g('#m-cliente')
   };
   Object.keys(v).forEach((k) => { if (v[k] !== undefined) mod[k] = v[k]; });
 }
@@ -2242,6 +2476,59 @@ function disegnaPannello() {
     return;
   }
 
+  /* ---------- UOVA: RACCOLTA E VENDITA ---------- */
+  if (k === 'Raccolta' || k === 'Vendita') {
+    const vendita = k === 'Vendita';
+    const quante = Number(mod.quantita || 0);
+    const prezzo = leggiPrezzo(mod.prezzo) || 0;
+    const disponibili = uovaDisponibili(nuovo ? null : idAperto);
+    $('#pannello-titolo').textContent = vendita
+      ? (nuovo ? 'Nuova vendita' : 'Vendita di uova')
+      : (nuovo ? 'Nuova raccolta' : 'Raccolta di uova');
+    $('#pannello-corpo').innerHTML = `
+      <div class="flex gap-1.5">
+        <button class="bot ${vendita ? 'bot-chiaro' : 'bot-verde'} flex-1" data-tipo-uova="Raccolta">🧺 Raccolta</button>
+        <button class="bot ${vendita ? 'bot-verde' : 'bot-chiaro'} flex-1" data-tipo-uova="Vendita">💶 Vendita</button>
+      </div>
+
+      <div><label class="didascalia" for="m-data-uova">Giorno</label>
+        <input id="m-data-uova" type="date" class="campo mt-1.5" value="${mod.data_uova || OGGI}"></div>
+
+      <div><label class="didascalia" for="m-quantita">Quante uova</label>
+        <div class="flex items-center gap-2 mt-1.5">
+          <button class="bot bot-chiaro" data-uova-meno="1" aria-label="Una in meno">−</button>
+          <input id="m-quantita" type="number" inputmode="numeric" min="1" class="campo flex-1 text-center"
+                 value="${mod.quantita}" placeholder="0">
+          <button class="bot bot-chiaro" data-uova-piu="1" aria-label="Una in più">+</button>
+        </div>
+        ${!vendita ? '' : `<p id="avviso-scorte" class="text-sm font-bold mt-1.5"
+             style="color:#8A4B10" ${quante > disponibili ? '' : 'hidden'}>${avvisoScorte(disponibili)}</p>`}
+        </div>
+
+      ${!vendita ? '' : `
+      <div><label class="didascalia" for="m-prezzo">Prezzo a uovo</label>
+        <input id="m-prezzo" type="text" inputmode="decimal"
+               class="campo mt-1.5" value="${typeof mod.prezzo === 'number'
+                        ? mod.prezzo.toFixed(2).replace('.', ',')
+                        : pul(String(mod.prezzo ?? ''))}"></div>
+
+      <div class="scheda flex items-baseline gap-2">
+        <span class="flex-1 font-bold">Incasso</span>
+        <span id="incasso-uova" class="font-black text-lg tabellare">${euro(quante * prezzo) || '0,00 €'}</span>
+      </div>
+
+      <div><label class="didascalia" for="m-cliente">A chi (se vuoi)</label>
+        <input id="m-cliente" type="text" class="campo mt-1.5" value="${pul(mod.cliente || '')}"
+               placeholder="nome di chi compra"></div>`}
+
+      <div><label class="didascalia" for="m-note">Note</label>
+        <textarea id="m-note" rows="2" class="campo mt-1.5">${pul(mod.note || '')}</textarea></div>
+
+      <button class="bot bot-verde bot-largo" data-azione="salva">${nuovo ? '＋ Registra' : '💾 Salva'}</button>
+      ${!nuovo ? '<button class="bot bot-rosso bot-largo" data-azione="elimina-nel-pannello">🗑 Elimina</button>' : ''}`;
+    return;
+  }
+
   /* ---------- CONTATTO ---------- */
   if (k === 'Contatto') {
     $('#pannello-titolo').textContent = 'Nuovo contatto';
@@ -2354,7 +2641,8 @@ async function salva() {
   const bot = $('[data-azione="salva"]');
   const titolo = String(mod.titolo || '').trim();
 
-  if (k !== 'Intervento' && !titolo) { avvisa('Scrivi prima il nome', true); const e = $('#m-titolo'); if (e) e.focus(); return; }
+  const senzaNome = k === 'Intervento' || k === 'Raccolta' || k === 'Vendita';
+  if (!senzaNome && !titolo) { avvisa('Scrivi prima il nome', true); const e = $('#m-titolo'); if (e) e.focus(); return; }
   if (bot) { bot.disabled = true; bot.textContent = 'Salvo…'; }
 
   try {
@@ -2396,6 +2684,29 @@ async function salva() {
       if (mod.prossimo_il) await creaPromemoriaSanitario(animaleAperto, mod.tipo_evento, mod.prossimo_il, mod.descrizione);
       disegna(); avvisa(nuovo ? 'Intervento aggiunto' : 'Modifiche salvate');
       apriAnimale(animaleAperto);            // torno alla carta d'identità aggiornata
+      return;
+    }
+
+    if (k === 'Raccolta' || k === 'Vendita') {
+      const quante = Math.trunc(Number(mod.quantita || 0));
+      if (!(quante > 0)) { avvisa('Scrivi quante uova', true); if (bot) { bot.disabled = false; disegnaPannello(); } return; }
+      const riga = { data: mod.data_uova || OGGI, tipo: k, quantita: quante,
+                     note: (mod.note || '').trim() || null,
+                     prezzo_unitario: null, cliente: null };
+      if (k === 'Vendita') {
+        const prezzo = leggiPrezzo(mod.prezzo);
+        if (prezzo === null) { avvisa('Scrivi il prezzo a uovo, per esempio 0,60', true); if (bot) { bot.disabled = false; disegnaPannello(); } return; }
+        riga.prezzo_unitario = prezzo;
+        riga.cliente = (mod.cliente || '').trim() || null;
+      }
+      const salvatoUo = nuovo ? await archivio.inserisci('uova', riga)
+                              : await archivio.modifica('uova', idAperto, riga);
+      metti('uova', salvatoUo);
+      annota(nuovo ? 'Aggiunto' : 'Modificato', k, quante + ' uova',
+             k === 'Vendita' ? euro(quante * riga.prezzo_unitario) : null,
+             (salvatoUo && salvatoUo.id) || idAperto);
+      disegna(); chiudiPannello();
+      avvisa(nuovo ? (k === 'Vendita' ? 'Vendita registrata' : 'Raccolta registrata') : 'Modifiche salvate');
       return;
     }
 
@@ -2595,12 +2906,12 @@ function inCsv(righe) {
   return [col.join(';')].concat(righe.map((r) => col.map((c) => cella(r[c])).join(';'))).join('\r\n');
 }
 function backupJson() {
-  const d = { esportato_il: new Date().toISOString(), attivita, animali, interventi, contatti, diario };
+  const d = { esportato_il: new Date().toISOString(), attivita, animali, interventi, contatti, diario, uova };
   scarica(`fattoria-backup-${OGGI}.json`, JSON.stringify(d, null, 2), 'application/json');
   avvisa('Backup JSON scaricato');
 }
 function backupCsv() {
-  const parti = [['ATTIVITA', attivita], ['ANIMALI', animali], ['INTERVENTI', interventi], ['CONTATTI', contatti]]
+  const parti = [['ATTIVITA', attivita], ['ANIMALI', animali], ['INTERVENTI', interventi], ['CONTATTI', contatti], ['UOVA', uova]]
     .filter(([, r]) => r.length)
     .map(([n, r]) => n + '\r\n' + inCsv(r)).join('\r\n\r\n');
   scarica(`fattoria-backup-${OGGI}.csv`, '﻿' + parti, 'text/csv;charset=utf-8');
@@ -2767,7 +3078,7 @@ function disegnaImpostazioni() {
    EVENTI
    ========================================================================== */
 document.addEventListener('click', (ev) => {
-  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra],[data-scheda],[data-animale-nota],[data-trovato]');
+  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra],[data-scheda],[data-animale-nota],[data-trovato],[data-periodo],[data-tipo-uova],[data-uova-meno],[data-uova-piu],[data-uovo]');
   if (!el) return;
 
   if (el.dataset.vista) {
@@ -2779,6 +3090,11 @@ document.addEventListener('click', (ev) => {
   if (el.dataset.miei)    { filtroMiei = el.dataset.miei; disegna(); return; }
   if (el.dataset.filtroReg) { filtroReg = el.dataset.filtroReg; disegna(); return; }
   if (el.dataset.scheda)    { schedaStorico = el.dataset.scheda; disegna(); return; }
+  if (el.dataset.periodo) { periodoUova = { ...periodoUova, tipo: el.dataset.periodo }; disegna(); return; }
+  if (el.dataset.tipoUova) { leggiCampi(); tipoAperto = el.dataset.tipoUova; disegnaPannello(); return; }
+  if (el.dataset.uovaMeno) { leggiCampi(); mod.quantita = Math.max(0, Number(mod.quantita || 0) - 1); disegnaPannello(); return; }
+  if (el.dataset.uovaPiu)  { leggiCampi(); mod.quantita = Number(mod.quantita || 0) + 1; disegnaPannello(); return; }
+  if (el.dataset.uovo) { apriMovimentoUova(el.dataset.uovo); return; }
   if (el.dataset.trovato)   { apriTrovato(el.dataset.trovato, el.dataset.trovatoId); return; }
   if (el.dataset.io)      { io = el.dataset.io; localStorage.setItem('fattoria_io', io); disegnaImpostazioni(); disegna(); return; }
   if (el.dataset.sono)    { impostaIdentita(el.dataset.sono); return; }
@@ -2871,6 +3187,7 @@ document.addEventListener('click', (ev) => {
         const x = idAperto, k = tipoAperto, an = animaleAperto;
         if (k === 'Animale') { chiudiPannello(); elimina('animali', x); }
         else if (k === 'Intervento') { elimina('interventi', x).then(() => apriAnimale(an)); }
+        else if (k === 'Raccolta' || k === 'Vendita') { chiudiPannello(); elimina('uova', x); }
         else { chiudiPannello(); elimina('attivita', x); }
       } return;
   }
@@ -3002,7 +3319,8 @@ $('#ac-password').addEventListener('keydown', (e) => { if (e.key === 'Enter') en
 $('#ac-email').addEventListener('keydown', (e) => { if (e.key === 'Enter') entra(); });
 
 $('#aggiungi').addEventListener('click', () => {
-  if (vista === 'animali')  apriNuovo('Animale');
+  if (vista === 'uova')          apriNuovo('Raccolta');
+  else if (vista === 'animali')  apriNuovo('Animale');
   else if (vista === 'registro') apriNuovo('Nota');
   else if (vista === 'spesa')    apriNuovo('Spesa');
   else apriNuovo('Lavoro', vista === 'oggi' && calSel !== OGGI ? calSel : '');
@@ -3022,12 +3340,32 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('change', (e) => {
   if (e.target.id === 'm-scadenza') { mod.scadenza = e.target.value; disegnaPannello(); }
+  if (e.target.id === 'p-da' || e.target.id === 'p-a') {
+    periodoUova = { ...periodoUova, [e.target.id === 'p-da' ? 'da' : 'a']: e.target.value || OGGI };
+    disegnaUova();
+  }
+});
+document.addEventListener('input', (ev) => {
+  if (ev.target.id !== 'm-quantita' && ev.target.id !== 'm-prezzo') return;
+  if (tipoAperto !== 'Vendita') return;
+  leggiCampi();
+  const q = Number(mod.quantita || 0), p = leggiPrezzo(mod.prezzo) || 0;
+  const cella = $('#incasso-uova');
+  if (cella) cella.textContent = euro(q * p) || '0,00 €';
+  // l'avviso sulle scorte segue il numero mentre lo si scrive
+  const avviso = $('#avviso-scorte');
+  if (avviso) {
+    const disponibili = uovaDisponibili(modo === 'nuovo' ? null : idAperto);
+    avviso.hidden = !(q > disponibili);
+    if (q > disponibili) avviso.textContent = avvisoScorte(disponibili);
+  }
 });
 
 /* ==========================================================================
    SINCRONIZZAZIONE ISTANTANEA
    ========================================================================== */
-const COLL_DI_TABELLA = { attivita: 'attivita', animali: 'animali', interventi_animali: 'interventi', contatti: 'contatti' };
+const COLL_DI_TABELLA = { attivita: 'attivita', animali: 'animali', interventi_animali: 'interventi',
+                          contatti: 'contatti', uova: 'uova' };
 
 function avviaSincronia() {
   canale = sb.channel('fattoria-live');
@@ -3041,6 +3379,7 @@ function avviaSincronia() {
           if (coll === 'animali') animali = animali.filter((x) => x.id !== id);
           if (coll === 'interventi') interventi = interventi.filter((x) => x.id !== id);
           if (coll === 'contatti') contatti = contatti.filter((x) => x.id !== id);
+          if (coll === 'uova') uova = uova.filter((x) => x.id !== id);
         }
       } else if (p.new) metti(coll, p.new);
       if (caricoRotto) { caricoRotto = false; ricarica(false); return; }
@@ -3066,6 +3405,7 @@ async function ricarica(conMessaggio) {
     attivita = d.attivita; animali = d.animali; interventi = d.interventi; contatti = d.contatti;
     iscrizioni = d.iscrizioni || [];
     diario = d.diario || [];
+    uova = d.uova || [];
     caricoRotto = false; disegna();
     if (conMessaggio) avvisa('Dati aggiornati');
   } catch (e) {

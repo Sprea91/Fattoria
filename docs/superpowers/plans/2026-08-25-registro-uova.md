@@ -146,10 +146,13 @@ Aprire il file, trovare ogni elenco di tabelle e aggiungere `,'uova'` in coda, e
 - [ ] **Passo 4: controllare che nessun elenco sia rimasto indietro**
 
 ```bash
-grep -n "iscrizioni_push','diario'" schema-chiudi-permessi.sql schema-riapri-permessi.sql
+grep -nE "'diario'\)|'diario'\]" schema-chiudi-permessi.sql schema-riapri-permessi.sql
 ```
 
-Atteso: **nessuna riga stampata**. Ogni riga che compare è un elenco che finisce con `'diario'` senza `'uova'` dopo, cioè un elenco dimenticato.
+Atteso: **nessuna riga stampata**. Il comando cerca gli elenchi che si CHIUDONO subito
+dopo `'diario'`, con la parentesi o la quadra: quelli sono gli elenchi dimenticati.
+Cercare il solo `'diario'` senza l'ancoraggio della chiusura non servirebbe a
+niente, perché combacerebbe anche con gli elenchi già corretti.
 
 ```bash
 grep -c "uova" schema-chiudi-permessi.sql schema-riapri-permessi.sql

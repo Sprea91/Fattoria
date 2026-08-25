@@ -16,7 +16,7 @@ begin
     select tablename, policyname
       from pg_policies
      where schemaname = 'public'
-       and tablename in ('attivita','animali','interventi_animali','contatti','iscrizioni_push','diario')
+       and tablename in ('attivita','animali','interventi_animali','contatti','iscrizioni_push','diario','uova')
   loop
     execute format('drop policy %I on public.%I', r.policyname, r.tablename);
   end loop;
@@ -26,7 +26,7 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['attivita','animali','interventi_animali','contatti','iscrizioni_push','diario'] loop
+  foreach t in array array['attivita','animali','interventi_animali','contatti','iscrizioni_push','diario','uova'] loop
     execute format('create policy "%s_leggi"     on public.%I for select using (true)', t, t);
     execute format('create policy "%s_inserisci" on public.%I for insert with check (true)', t, t);
     execute format('create policy "%s_modifica"  on public.%I for update using (true) with check (true)', t, t);

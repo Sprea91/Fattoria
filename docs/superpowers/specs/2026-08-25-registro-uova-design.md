@@ -171,6 +171,14 @@ Escluse di proposito, da riprendere quando ci saranno mesi di dati veri:
   le vendite vecchie mantengono il loro.
 - Il riepilogo sui quattro periodi dà numeri coerenti fra loro: la somma dei
   mesi dell'anno corrisponde al totale dell'anno.
-- Senza rete la sezione si apre e accetta registrazioni, che risalgono al
-  ritorno della connessione.
+- Senza rete la sezione si apre e non dà errori.
+
+  Attenzione: **le registrazioni fatte senza rete non risalgono da sole**. La
+  prima stesura di questo documento lo prometteva, ma non è come funziona
+  l'app: l'archivio locale entra in gioco soltanto quando Supabase non è
+  configurato o la sua libreria non si carica. Se invece la connessione cade a
+  app avviata, il salvataggio fallisce con "Non salvato" e il dato è perso.
+  Vale per tutta l'app, non solo per le uova, ed è così da prima di questo
+  lavoro. Sistemarlo è un lavoro a sé: servirebbe una coda delle scritte in
+  attesa, con la gestione dei conflitti fra i due telefoni.
 - Con i permessi chiusi, senza accesso la tabella `uova` non è leggibile.
