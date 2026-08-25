@@ -23,6 +23,10 @@ const VAPID_PUBBLICA = process.env.VAPID_PUBBLICA
 const VAPID_PRIVATA = (process.env.VAPID_PRIVATA || '').trim().replace(/[^A-Za-z0-9\-_]/g, '');
 const CONTATTO = process.env.VAPID_CONTATTO || 'mailto:cqindustrializzazione@medacta.ch';
 const FORZA = String(process.env.FORZA || '').toLowerCase() === 'true';
+// Prova a vuoto: fa tutto il giro (legge il database, compone il messaggio) ma
+// non manda niente ai telefoni. Serve per controllare che la catena funzioni
+// senza far arrivare il riassunto del mattino a metà pomeriggio.
+const SOLO_PROVA = String(process.env.SOLO_PROVA || '').toLowerCase() === 'true';
 // Finestra oraria italiana in cui il riassunto può partire. Non un'ora secca:
 // le esecuzioni pianificate di GitHub possono essere saltate o slittare, e con
 // una finestra il tentativo successivo recupera.
@@ -158,6 +162,12 @@ async function principale() {
     url: INDIRIZZO_APP
   });
   console.log('--- messaggio ---\n' + titolo + '\n' + corpo + '\n-----------------');
+
+  if (SOLO_PROVA) {
+    console.log(`PROVA: mi fermo qui, non mando niente. Senza la prova avrei scritto a ${iscrizioni.length} dispositivo/i:`);
+    iscrizioni.forEach((i) => console.log('  - ' + (i.dispositivo || i.id)));
+    return;
+  }
 
   let inviate = 0, rimosse = 0, errori = 0;
   for (const i of iscrizioni) {

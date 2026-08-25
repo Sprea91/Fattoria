@@ -28,6 +28,11 @@ on:
     - cron: '43 7 * * *'   # 09:43 d'estate / 08:43 d'inverno
     - cron: '17 8 * * *'   # ultimo recupero: 10:17 d'estate / 09:17 d'inverno
   workflow_dispatch:        # pulsante per provare quando vuoi
+    inputs:
+      prova:
+        description: 'Prova a vuoto: controlla che tutto funzioni senza mandare notifiche'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -59,4 +64,7 @@ jobs:
           SUPABASE_SERVIZIO: ${{ secrets.SUPABASE_SERVIZIO }}
           # con il pulsante manuale invio sempre, senza aspettare l'orario
           FORZA: ${{ github.event_name == 'workflow_dispatch' }}
+          # la spunta è accesa per difetto: chi preme il pulsante senza pensarci
+          # controlla soltanto, non sveglia i telefoni
+          SOLO_PROVA: ${{ inputs.prova }}
         run: node scripts/invia-notifiche.js
