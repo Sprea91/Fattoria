@@ -250,6 +250,8 @@
   @keyframes su { from { transform: translateY(16px); opacity: .5 } to { transform: none; opacity: 1 } }
   [hidden] { display: none !important; }
   .tabellare { font-variant-numeric: tabular-nums; }
+  /* la riga che in questo momento è aperta nel pannello */
+  .riga-aperta { border-color: var(--verde); border-width: 2px; background: #F3F7F1; }
 </style>
 
 <body>
@@ -2006,7 +2008,11 @@ function elencoMovimenti() {
   const riga = (u) => {
     const vendita = u.tipo === 'Vendita';
     const soldi = vendita ? euro(Number(u.quantita) * Number(u.prezzo_unitario || 0)) : null;
-    return `<div class="riga" data-uovo="${u.id}">
+    // "tocca" e role/tabindex come ogni altra riga dell'app: senza, il dito non
+    // riceve nessuna risposta e la riga non sembra nemmeno toccabile.
+    const aperta = modo === 'uova-modifica' && idAperto === u.id;
+    return `<div class="riga tocca ${aperta ? 'riga-aperta' : ''}" data-uovo="${u.id}"
+                 role="button" tabindex="0">
         <span class="text-xl shrink-0">${vendita ? '💶' : '🧺'}</span>
         <div class="flex-1 min-w-0">
           <p class="font-black">${u.quantita} uova${vendita && u.cliente ? ' · ' + pul(u.cliente) : ''}</p>
@@ -2263,13 +2269,16 @@ function apriMovimentoUova(id) {
   mod = { data_uova: u.data || OGGI, quantita: u.quantita ?? '',
           prezzo: u.prezzo_unitario ?? prezzoProposto(), cliente: u.cliente || '',
           note: u.note || '' };
-  disegnaPannello(); apriPannello();
+  disegnaPannello(); apriPannello(); disegnaUova();
 }
 
 function apriPannello() { $('#pannello').hidden = false; document.body.style.overflow = 'hidden'; }
 function chiudiPannello() {
   $('#pannello').hidden = true; document.body.style.overflow = '';
   modo = null; idAperto = null; fotoScelta.dati = null;
+  // la riga delle uova resta segnata finché il pannello è aperto: chiudendolo
+  // il segno va tolto, e solo un ridisegno lo toglie
+  if (vista === 'uova') disegnaUova();
 }
 
 function leggiCampi() {
