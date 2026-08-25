@@ -1867,6 +1867,79 @@ function disegnaStorico() {
 }
 
 /* ==========================================================================
+   UOVA — periodi e conti
+   ========================================================================== */
+// Prezzo di partenza finché non c'è nessuna vendita da cui copiarlo.
+const PREZZO_INIZIALE = 0.60;
+
+// Quale fetta di tempo mostra il riepilogo. Le due date servono solo al tipo
+// "periodo": le altre voci si ricavano da oggi.
+let periodoUova = { tipo: 'mese', da: OGGI, a: OGGI };
+
+function estremiPeriodo(p) {
+  if (p.tipo === 'oggi') return { da: OGGI, a: OGGI };
+  if (p.tipo === 'mese') return { da: OGGI.slice(0, 8) + '01', a: OGGI };
+  if (p.tipo === 'anno') return { da: OGGI.slice(0, 4) + '-01-01', a: OGGI };
+  const da = p.da || OGGI, a = p.a || OGGI;
+  return da <= a ? { da, a } : { da: a, a: da };   // date invertite: le raddrizzo
+}
+
+const dentroPeriodo = (g, e) => !!g && g >= e.da && g <= e.a;
+
+// Giorni del periodo già passati: a metà mese la media non deve risultare
+// dimezzata da giorni che devono ancora arrivare.
+function giorniTrascorsi(e) {
+  const fine = e.a > OGGI ? OGGI : e.a;
+  if (fine < e.da) return 0;
+  const [y1, m1, g1] = e.da.split('-').map(Number);
+  const [y2, m2, g2] = fine.split('-').map(Number);
+  return Math.round((new Date(y2, m2 - 1, g2) - new Date(y1, m1 - 1, g1)) / 86400000) + 1;
+}
+
+// Il prezzo proposto è quello dell'ultima vendita registrata: sta nel
+// database, quindi è lo stesso sul telefono di tutti.
+function prezzoProposto() {
+  const vendite = uova
+    .filter((u) => u.tipo === 'Vendita' && u.prezzo_unitario !== null && u.prezzo_unitario !== undefined)
+    .sort((a, b) => String(b.data).localeCompare(String(a.data))
+                 || String(b.creato_il || '').localeCompare(String(a.creato_il || '')));
+  return vendite.length ? Number(vendite[0].prezzo_unitario) : PREZZO_INIZIALE;
+}
+
+function contiUova(p) {
+  const e = estremiPeriodo(p);
+  const dentro   = uova.filter((u) => dentroPeriodo(u.data, e));
+  const somma    = (righe) => righe.reduce((s, u) => s + Number(u.quantita || 0), 0);
+  const raccolte = somma(dentro.filter((u) => u.tipo === 'Raccolta'));
+  const vendite  = dentro.filter((u) => u.tipo === 'Vendita');
+  const vendute  = somma(vendite);
+  const incassato = vendite.reduce((s, u) =>
+    s + Number(u.quantita || 0) * Number(u.prezzo_unitario || 0), 0);
+
+  // Le cure hanno una data vera. Per gli animali esiste solo la data in cui
+  // sono stati inseriti nell'app: il riepilogo lo scrive, non lo nasconde.
+  const cure = interventi
+    .filter((x) => dentroPeriodo(x.data_evento, e))
+    .reduce((s, x) => s + Number(x.costo || 0), 0);
+  const acquisti = animali
+    .filter((a) => dentroPeriodo(String(a.creato_il || '').slice(0, 10), e))
+    .reduce((s, a) => s + Number(a.costo_acquisto || 0), 0);
+
+  const giorni = giorniTrascorsi(e);
+  return {
+    da: e.da, a: e.a,
+    raccolte, vendute,
+    restate: Math.max(0, raccolte - vendute),
+    incassato, cure, acquisti,
+    differenza: incassato - cure - acquisti,
+    media: giorni > 0 ? raccolte / giorni : 0,
+    movimenti: dentro.slice().sort((x, y) =>
+      String(y.data).localeCompare(String(x.data))
+      || String(y.creato_il || '').localeCompare(String(x.creato_il || '')))
+  };
+}
+
+/* ==========================================================================
    DISEGNO GENERALE
    ========================================================================== */
 const VISTE = ['oggi', 'animali', 'lavori', 'registro', 'spesa', 'storico'];
