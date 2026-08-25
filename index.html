@@ -2508,7 +2508,9 @@ function disegnaPannello() {
       ${!vendita ? '' : `
       <div><label class="didascalia" for="m-prezzo">Prezzo a uovo</label>
         <input id="m-prezzo" type="text" inputmode="decimal"
-               class="campo mt-1.5" value="${String(mod.prezzo ?? '').replace('.', ',')}"></div>
+               class="campo mt-1.5" value="${typeof mod.prezzo === 'number'
+                        ? mod.prezzo.toFixed(2).replace('.', ',')
+                        : pul(String(mod.prezzo ?? ''))}"></div>
 
       <div class="scheda flex items-baseline gap-2">
         <span class="flex-1 font-bold">Incasso</span>
