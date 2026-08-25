@@ -22,6 +22,17 @@ create table if not exists public.uova (
 
 create index if not exists uova_data_idx on public.uova (data desc);
 
+-- Il campo "tipo" decide come viene letta la riga: un valore diverso da questi
+-- due sparirebbe dal riepilogo pur restando nell'archivio. Postgres non ha un
+-- "add constraint if not exists", quindi si guarda prima se c'è già.
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'uova_tipo_valido') then
+    alter table public.uova
+      add constraint uova_tipo_valido check (tipo in ('Raccolta', 'Vendita'));
+  end if;
+end $$;
+
 -- ---------------------------------------------------------------------------
 -- Permessi: come le altre tabelle, solo chi ha fatto l'accesso.
 -- Le regole vecchie vengono lette dal database e rimosse, qualunque nome

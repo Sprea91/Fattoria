@@ -2,7 +2,7 @@
   ============================================================================
   FATTORIA TASKS — v4 (file unico, tutto in italiano)
   ============================================================================
-  Barra in basso:  Oggi · Animali · Lavori · Registro · Spesa
+  Barra in basso:  Oggi · Animali · Uova · Lavori · Registro · Spesa
   Home (Oggi):     Calendario e scadenze -> Scadenze -> Attività del giorno -> Routine
   In alto:         🔔 notifiche (scadenze, spesa, routine) · ⚙️ impostazioni · avatar
 
@@ -1891,6 +1891,9 @@ function estremiPeriodo(p) {
 
 const dentroPeriodo = (g, e) => !!g && g >= e.da && g <= e.a;
 
+// Conteggi all'italiana: 4.180, non 4180. euro() lo fa già per i soldi.
+const numero = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
 // Giorni del periodo già passati: a metà mese la media non deve risultare
 // dimezzata da giorni che devono ancora arrivare.
 function giorniTrascorsi(e) {
@@ -1905,7 +1908,7 @@ function giorniTrascorsi(e) {
 // database, quindi è lo stesso sul telefono di tutti.
 function prezzoProposto() {
   const vendite = uova
-    .filter((u) => u.tipo === 'Vendita' && u.prezzo_unitario !== null && u.prezzo_unitario !== undefined)
+    .filter((u) => u.tipo === 'Vendita' && Number(u.prezzo_unitario) > 0)
     .sort((a, b) => String(b.data).localeCompare(String(a.data))
                  || String(b.creato_il || '').localeCompare(String(a.creato_il || '')));
   return vendite.length ? Number(vendite[0].prezzo_unitario) : PREZZO_INIZIALE;
@@ -1929,6 +1932,19 @@ const avvisoScorte = (disponibili) =>
   `⚠️ In casa ne risultano ${disponibili < 0 ? 0 : disponibili}. Puoi salvare lo stesso: `
   + "saranno di una raccolta più vecchia, oppure c'è un numero da correggere.";
 
+// Legge un prezzo scritto a mano. Il campo è di testo e non un type="number"
+// perché su un telefono italiano il tastierino decimale dà la virgola, e un
+// campo numerico con la virgola dentro restituisce stringa vuota: Number('')
+// vale zero, non "non valido", e la vendita finirebbe salvata a 0,00 euro
+// senza che nessuno se ne accorga.
+// Restituisce null se il campo è vuoto o non è un numero: chi chiama decide.
+function leggiPrezzo(grezzo) {
+  const s = String(grezzo ?? '').trim().replace(',', '.');
+  if (s === '') return null;
+  const n = Number(s);
+  return isFinite(n) && n >= 0 ? n : null;
+}
+
 function contiUova(p) {
   const e = estremiPeriodo(p);
   const dentro   = uova.filter((u) => dentroPeriodo(u.data, e));
@@ -1944,8 +1960,10 @@ function contiUova(p) {
   const cure = interventi
     .filter((x) => dentroPeriodo(x.data_evento, e))
     .reduce((s, x) => s + Number(x.costo || 0), 0);
+  // creato_il arriva in UTC: tagliarne i primi dieci caratteri sposterebbe nel
+  // giorno prima tutto ciò che è stato inserito dopo le 22 d'estate.
   const acquisti = animali
-    .filter((a) => dentroPeriodo(String(a.creato_il || '').slice(0, 10), e))
+    .filter((a) => dentroPeriodo(a.creato_il ? isoDi(new Date(a.creato_il)) : '', e))
     .reduce((s, a) => s + Number(a.costo_acquisto || 0), 0);
 
   const giorni = giorniTrascorsi(e);
@@ -1968,7 +1986,9 @@ function contiUova(p) {
 const NOMI_PERIODO = { oggi: 'Oggi', mese: 'Questo mese', anno: 'Quest\'anno', periodo: 'Periodo scelto' };
 
 function sceltaPeriodo() {
-  const bottone = (t) => `<button class="bot ${periodoUova.tipo === t ? 'bot-verde' : 'bot-chiaro'} bot-piccolo flex-1"
+  // whitespace-nowrap e shrink-0: "Quest'anno" non va a capo, e su uno schermo
+  // stretto la fila scorre invece di sbordare dalla scheda.
+  const bottone = (t) => `<button class="bot ${periodoUova.tipo === t ? 'bot-verde' : 'bot-chiaro'} bot-piccolo shrink-0 whitespace-nowrap"
       data-periodo="${t}">${NOMI_PERIODO[t]}</button>`;
   const date = periodoUova.tipo !== 'periodo' ? '' : `
     <div class="flex items-end gap-2 mt-2">
@@ -1978,7 +1998,7 @@ function sceltaPeriodo() {
         <input id="p-a" type="date" class="campo mt-1" value="${periodoUova.a}"></div>
     </div>`;
   return `<div class="scheda">
-      <div class="flex gap-1.5">${['oggi', 'mese', 'anno', 'periodo'].map(bottone).join('')}</div>
+      <div class="flex gap-1.5 overflow-x-auto no-sb">${['oggi', 'mese', 'anno', 'periodo'].map(bottone).join('')}</div>
       ${date}
     </div>`;
 }
@@ -1995,9 +2015,9 @@ function riquadroConti() {
         Prezzo attuale ${euro(prezzoProposto())} a uovo</p>
 
       <div class="pt-2 space-y-1">
-        ${riga('Raccolte', c.raccolte)}
-        ${riga('Vendute', c.vendute)}
-        ${riga('Restate in casa', c.restate)}
+        ${riga('Raccolte', numero(c.raccolte))}
+        ${riga('Vendute', numero(c.vendute))}
+        ${riga('Non vendute nel periodo', numero(c.restate))}
       </div>
 
       <div class="pt-2 space-y-1" style="border-top:1.5px solid var(--bordo)">
@@ -2011,7 +2031,7 @@ function riquadroConti() {
       </div>
 
       <p class="text-xs font-semibold pt-2" style="color:var(--inchiostro2)">
-        Media ${c.media.toFixed(1).replace('.', ',')} uova al giorno ·
+        Media ${c.media < 10 ? c.media.toFixed(1).replace('.', ',') : numero(c.media)} uova al giorno ·
         l'acquisto degli animali è contato per data di inserimento nell'app,
         che è l'unica data disponibile.</p>
     </div>`;
@@ -2217,7 +2237,10 @@ async function elimina(coll, id, silenzioso) {
     const riga = (elenco[coll] ? elenco[coll]() : []).find((x) => x.id === id) || {};
     const comeSiChiamava = riga.titolo || riga.nome || riga.tipo_evento || riga.dispositivo
                            || (riga.quantita ? riga.quantita + ' uova' : '');
-    const tipoRiga = coll === 'attivita' ? (riga.tipo || 'Attività') : NOME_OGGETTO[coll];
+    // le uova portano già il loro tipo (Raccolta o Vendita): nel diario deve
+    // comparire quello, non la parola generica, come per le attività
+    const tipoRiga = (coll === 'attivita' || coll === 'uova')
+      ? (riga.tipo || NOME_OGGETTO[coll]) : NOME_OGGETTO[coll];
     await archivio.elimina(coll, id);
     if (coll !== 'diario') annota('Eliminato', tipoRiga, comeSiChiamava, null, null);
     if (coll === 'attivita') attivita = attivita.filter((x) => x.id !== id);
@@ -2457,7 +2480,7 @@ function disegnaPannello() {
   if (k === 'Raccolta' || k === 'Vendita') {
     const vendita = k === 'Vendita';
     const quante = Number(mod.quantita || 0);
-    const prezzo = Number(mod.prezzo || 0);
+    const prezzo = leggiPrezzo(mod.prezzo) || 0;
     const disponibili = uovaDisponibili(nuovo ? null : idAperto);
     $('#pannello-titolo').textContent = vendita
       ? (nuovo ? 'Nuova vendita' : 'Vendita di uova')
@@ -2484,8 +2507,8 @@ function disegnaPannello() {
 
       ${!vendita ? '' : `
       <div><label class="didascalia" for="m-prezzo">Prezzo a uovo</label>
-        <input id="m-prezzo" type="number" inputmode="decimal" step="0.01" min="0"
-               class="campo mt-1.5" value="${mod.prezzo}"></div>
+        <input id="m-prezzo" type="text" inputmode="decimal"
+               class="campo mt-1.5" value="${String(mod.prezzo ?? '').replace('.', ',')}"></div>
 
       <div class="scheda flex items-baseline gap-2">
         <span class="flex-1 font-bold">Incasso</span>
@@ -2669,8 +2692,8 @@ async function salva() {
                      note: (mod.note || '').trim() || null,
                      prezzo_unitario: null, cliente: null };
       if (k === 'Vendita') {
-        const prezzo = Number(mod.prezzo);
-        if (!isFinite(prezzo) || prezzo < 0) { avvisa('Prezzo non valido', true); if (bot) { bot.disabled = false; disegnaPannello(); } return; }
+        const prezzo = leggiPrezzo(mod.prezzo);
+        if (prezzo === null) { avvisa('Scrivi il prezzo a uovo, per esempio 0,60', true); if (bot) { bot.disabled = false; disegnaPannello(); } return; }
         riga.prezzo_unitario = prezzo;
         riga.cliente = (mod.cliente || '').trim() || null;
       }
@@ -2881,12 +2904,12 @@ function inCsv(righe) {
   return [col.join(';')].concat(righe.map((r) => col.map((c) => cella(r[c])).join(';'))).join('\r\n');
 }
 function backupJson() {
-  const d = { esportato_il: new Date().toISOString(), attivita, animali, interventi, contatti, diario };
+  const d = { esportato_il: new Date().toISOString(), attivita, animali, interventi, contatti, diario, uova };
   scarica(`fattoria-backup-${OGGI}.json`, JSON.stringify(d, null, 2), 'application/json');
   avvisa('Backup JSON scaricato');
 }
 function backupCsv() {
-  const parti = [['ATTIVITA', attivita], ['ANIMALI', animali], ['INTERVENTI', interventi], ['CONTATTI', contatti]]
+  const parti = [['ATTIVITA', attivita], ['ANIMALI', animali], ['INTERVENTI', interventi], ['CONTATTI', contatti], ['UOVA', uova]]
     .filter(([, r]) => r.length)
     .map(([n, r]) => n + '\r\n' + inCsv(r)).join('\r\n\r\n');
   scarica(`fattoria-backup-${OGGI}.csv`, '﻿' + parti, 'text/csv;charset=utf-8');
@@ -3324,7 +3347,7 @@ document.addEventListener('input', (ev) => {
   if (ev.target.id !== 'm-quantita' && ev.target.id !== 'm-prezzo') return;
   if (tipoAperto !== 'Vendita') return;
   leggiCampi();
-  const q = Number(mod.quantita || 0), p = Number(mod.prezzo || 0);
+  const q = Number(mod.quantita || 0), p = leggiPrezzo(mod.prezzo) || 0;
   const cella = $('#incasso-uova');
   if (cella) cella.textContent = euro(q * p) || '0,00 €';
   // l'avviso sulle scorte segue il numero mentre lo si scrive

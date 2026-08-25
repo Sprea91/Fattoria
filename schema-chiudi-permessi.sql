@@ -17,7 +17,7 @@
 -- MARCIA INDIETRO: schema-riapri-permessi.sql riporta tutto come prima.
 -- ============================================================================
 
--- 1) Via TUTTE le regole esistenti sulle sei tabelle, qualunque nome abbiano.
+-- 1) Via TUTTE le regole esistenti sulle sette tabelle, qualunque nome abbiano.
 do $$
 declare r record;
 begin
