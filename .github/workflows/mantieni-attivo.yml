@@ -1,0 +1,46 @@
+name: Mantieni attive le notifiche
+
+# GitHub spegne le esecuzioni pianificate dei repository pubblici quando per
+# 60 giorni non succede niente nel repository. Quando capita, le notifiche del
+# mattino smettono di partire e non c'è nulla nell'app che lo faccia notare.
+#
+# Questo lavoro scrive la data in .github/ultimo-controllo.txt il primo giorno
+# di ogni mese e salva la modifica: il conto dei 60 giorni riparte da capo.
+#
+# DA SAPERE: il salvataggio è fatto dal robot di GitHub, non dal tuo account.
+# Se un giorno non bastasse a far ripartire il conto, GitHub manda comunque una
+# email prima di spegnere le esecuzioni: da lì bastano due clic per riaccenderle
+# (scheda Actions → il lavoro spento → pulsante "Enable workflow").
+on:
+  schedule:
+    - cron: '11 4 1 * *'   # il primo giorno del mese, 06:11 in Italia d'estate
+  workflow_dispatch:       # pulsante per provare quando vuoi
+
+permissions:
+  contents: write          # serve per salvare la riga con la data
+
+concurrency:
+  group: mantieni-attivo
+  cancel-in-progress: false
+
+jobs:
+  tocca:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Scarico il codice
+        uses: actions/checkout@v7
+
+      - name: Scrivo la data e la salvo
+        run: |
+          date -u '+Ultimo controllo automatico: %Y-%m-%d %H:%M UTC' > .github/ultimo-controllo.txt
+          git config user.name  'Robot Fattoria'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add .github/ultimo-controllo.txt
+          if git diff --cached --quiet; then
+            echo "Niente da salvare: la riga era già aggiornata."
+          else
+            git commit -m 'Controllo automatico: le notifiche del mattino restano accese'
+            git push
+            echo "Salvato: il conto dei 60 giorni riparte da oggi."
+          fi
