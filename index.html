@@ -1911,6 +1911,24 @@ function prezzoProposto() {
   return vendite.length ? Number(vendite[0].prezzo_unitario) : PREZZO_INIZIALE;
 }
 
+// Quante uova risultano in casa: tutte le raccolte meno tutte le vendite, su
+// tutto l'archivio e non sul periodo mostrato, perché il periodo è solo una
+// finestra sui dati. Modificando una vendita, quella riga non conta: altrimenti
+// l'avviso scatterebbe per uova che la modifica stessa sta per restituire.
+function uovaDisponibili(escludiId) {
+  return uova.reduce((s, u) => {
+    if (escludiId && u.id === escludiId) return s;
+    const q = Number(u.quantita || 0);
+    return u.tipo === 'Raccolta' ? s + q : s - q;
+  }, 0);
+}
+
+// Il testo dell'avviso quando si vende più di quanto risulta in casa. Non
+// impedisce niente: le uova di oggi possono essere quelle raccolte ieri.
+const avvisoScorte = (disponibili) =>
+  `⚠️ In casa ne risultano ${disponibili < 0 ? 0 : disponibili}. Puoi salvare lo stesso: `
+  + "saranno di una raccolta più vecchia, oppure c'è un numero da correggere.";
+
 function contiUova(p) {
   const e = estremiPeriodo(p);
   const dentro   = uova.filter((u) => dentroPeriodo(u.data, e));
@@ -2440,6 +2458,7 @@ function disegnaPannello() {
     const vendita = k === 'Vendita';
     const quante = Number(mod.quantita || 0);
     const prezzo = Number(mod.prezzo || 0);
+    const disponibili = uovaDisponibili(nuovo ? null : idAperto);
     $('#pannello-titolo').textContent = vendita
       ? (nuovo ? 'Nuova vendita' : 'Vendita di uova')
       : (nuovo ? 'Nuova raccolta' : 'Raccolta di uova');
@@ -2458,7 +2477,10 @@ function disegnaPannello() {
           <input id="m-quantita" type="number" inputmode="numeric" min="1" class="campo flex-1 text-center"
                  value="${mod.quantita}" placeholder="0">
           <button class="bot bot-chiaro" data-uova-piu="1" aria-label="Una in più">+</button>
-        </div></div>
+        </div>
+        ${!vendita ? '' : `<p id="avviso-scorte" class="text-sm font-bold mt-1.5"
+             style="color:#8A4B10" ${quante > disponibili ? '' : 'hidden'}>${avvisoScorte(disponibili)}</p>`}
+        </div>
 
       ${!vendita ? '' : `
       <div><label class="didascalia" for="m-prezzo">Prezzo a uovo</label>
@@ -3305,6 +3327,13 @@ document.addEventListener('input', (ev) => {
   const q = Number(mod.quantita || 0), p = Number(mod.prezzo || 0);
   const cella = $('#incasso-uova');
   if (cella) cella.textContent = euro(q * p) || '0,00 €';
+  // l'avviso sulle scorte segue il numero mentre lo si scrive
+  const avviso = $('#avviso-scorte');
+  if (avviso) {
+    const disponibili = uovaDisponibili(modo === 'nuovo' ? null : idAperto);
+    avviso.hidden = !(q > disponibili);
+    if (q > disponibili) avviso.textContent = avvisoScorte(disponibili);
+  }
 });
 
 /* ==========================================================================
