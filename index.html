@@ -249,6 +249,7 @@
   .pannello { animation: su .22s cubic-bezier(.2,.8,.2,1); }
   @keyframes su { from { transform: translateY(16px); opacity: .5 } to { transform: none; opacity: 1 } }
   [hidden] { display: none !important; }
+  .tabellare { font-variant-numeric: tabular-nums; }
 </style>
 
 <body>
@@ -1944,8 +1945,60 @@ function contiUova(p) {
 /* ==========================================================================
    UOVA — la sezione
    ========================================================================== */
+const NOMI_PERIODO = { oggi: 'Oggi', mese: 'Questo mese', anno: 'Quest\'anno', periodo: 'Periodo scelto' };
+
+function sceltaPeriodo() {
+  const bottone = (t) => `<button class="bot ${periodoUova.tipo === t ? 'bot-verde' : 'bot-chiaro'} bot-piccolo flex-1"
+      data-periodo="${t}">${NOMI_PERIODO[t]}</button>`;
+  const date = periodoUova.tipo !== 'periodo' ? '' : `
+    <div class="flex items-end gap-2 mt-2">
+      <div class="flex-1"><label class="didascalia" for="p-da">Dal</label>
+        <input id="p-da" type="date" class="campo mt-1" value="${periodoUova.da}"></div>
+      <div class="flex-1"><label class="didascalia" for="p-a">Al</label>
+        <input id="p-a" type="date" class="campo mt-1" value="${periodoUova.a}"></div>
+    </div>`;
+  return `<div class="scheda">
+      <div class="flex gap-1.5">${['oggi', 'mese', 'anno', 'periodo'].map(bottone).join('')}</div>
+      ${date}
+    </div>`;
+}
+
+function riquadroConti() {
+  const c = contiUova(periodoUova);
+  const riga = (etichetta, valore, forte) => `<div class="flex items-baseline gap-2 ${forte ? 'font-black' : 'font-bold'}">
+      <span class="flex-1 min-w-0">${etichetta}</span>
+      <span class="shrink-0 tabellare">${valore}</span></div>`;
+  const attivo = c.differenza >= 0;
+  return `<div class="scheda space-y-1.5">
+      <p class="didascalia">${NOMI_PERIODO[periodoUova.tipo]}</p>
+      <p class="text-sm font-semibold" style="color:var(--inchiostro2)">
+        Prezzo attuale ${euro(prezzoProposto())} a uovo</p>
+
+      <div class="pt-2 space-y-1">
+        ${riga('Raccolte', c.raccolte)}
+        ${riga('Vendute', c.vendute)}
+        ${riga('Restate in casa', c.restate)}
+      </div>
+
+      <div class="pt-2 space-y-1" style="border-top:1.5px solid var(--bordo)">
+        ${riga('Incassato', euro(c.incassato) || '0,00 €')}
+        ${riga('Cure e veterinario', euro(c.cure) || '0,00 €')}
+        ${riga('Acquisto animali', euro(c.acquisti) || '0,00 €')}
+      </div>
+
+      <div class="pt-2" style="border-top:1.5px solid var(--bordo);color:${attivo ? 'var(--verde-cupo)' : 'var(--allarme)'}">
+        ${riga(attivo ? 'In attivo' : 'In passivo', (attivo ? '+' : '') + euro(c.differenza), true)}
+      </div>
+
+      <p class="text-xs font-semibold pt-2" style="color:var(--inchiostro2)">
+        Media ${c.media.toFixed(1).replace('.', ',')} uova al giorno ·
+        l'acquisto degli animali è contato per data di inserimento nell'app,
+        che è l'unica data disponibile.</p>
+    </div>`;
+}
+
 function disegnaUova() {
-  $('#corpo-uova').innerHTML = '<p class="scheda text-center font-bold py-10">Sezione in costruzione</p>';
+  $('#corpo-uova').innerHTML = sceltaPeriodo() + riquadroConti();
 }
 
 /* ==========================================================================
@@ -2861,7 +2914,7 @@ function disegnaImpostazioni() {
    EVENTI
    ========================================================================== */
 document.addEventListener('click', (ev) => {
-  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra],[data-scheda],[data-animale-nota],[data-trovato]');
+  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra],[data-scheda],[data-animale-nota],[data-trovato],[data-periodo]');
   if (!el) return;
 
   if (el.dataset.vista) {
@@ -2873,6 +2926,7 @@ document.addEventListener('click', (ev) => {
   if (el.dataset.miei)    { filtroMiei = el.dataset.miei; disegna(); return; }
   if (el.dataset.filtroReg) { filtroReg = el.dataset.filtroReg; disegna(); return; }
   if (el.dataset.scheda)    { schedaStorico = el.dataset.scheda; disegna(); return; }
+  if (el.dataset.periodo) { periodoUova = { ...periodoUova, tipo: el.dataset.periodo }; disegna(); return; }
   if (el.dataset.trovato)   { apriTrovato(el.dataset.trovato, el.dataset.trovatoId); return; }
   if (el.dataset.io)      { io = el.dataset.io; localStorage.setItem('fattoria_io', io); disegnaImpostazioni(); disegna(); return; }
   if (el.dataset.sono)    { impostaIdentita(el.dataset.sono); return; }
@@ -3116,6 +3170,10 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('change', (e) => {
   if (e.target.id === 'm-scadenza') { mod.scadenza = e.target.value; disegnaPannello(); }
+  if (e.target.id === 'p-da' || e.target.id === 'p-a') {
+    periodoUova = { ...periodoUova, [e.target.id === 'p-da' ? 'da' : 'a']: e.target.value || OGGI };
+    disegnaUova();
+  }
 });
 
 /* ==========================================================================
