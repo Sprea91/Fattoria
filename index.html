@@ -2193,7 +2193,8 @@ function apriNuovo(tipo, scadenza) {
           specie: 'Bovino', razza: '', data_nascita: '', codice_stalla: '', costo_acquisto: '',
           tipo_evento: 'Visita veterinaria', data_evento: OGGI, descrizione: '', nome_veterinario: '', costo: '',
           prossimo: 'Nessuno', prossimo_il: '',
-          ruolo: 'Veterinario', telefono: '', extra: false };
+          ruolo: 'Veterinario', telefono: '',
+          data_uova: OGGI, quantita: '', prezzo: prezzoProposto(), cliente: '', extra: false };
   disegnaPannello(); apriPannello();
 }
 
@@ -2244,7 +2245,9 @@ function leggiCampi() {
     razza: g('#m-razza'), data_nascita: g('#m-nascita'), codice_stalla: g('#m-codice'),
     costo_acquisto: g('#m-costo-acquisto'), descrizione: g('#m-descrizione'),
     nome_veterinario: g('#m-veterinario'), costo: g('#m-costo'), data_evento: g('#m-data-evento'),
-    prossimo_il: g('#m-prossimo'), telefono: g('#m-telefono')
+    prossimo_il: g('#m-prossimo'), telefono: g('#m-telefono'),
+    data_uova: g('#m-data-uova'), quantita: g('#m-quantita'),
+    prezzo: g('#m-prezzo'), cliente: g('#m-cliente')
   };
   Object.keys(v).forEach((k) => { if (v[k] !== undefined) mod[k] = v[k]; });
 }
@@ -2389,6 +2392,53 @@ function disegnaPannello() {
     return;
   }
 
+  /* ---------- UOVA: RACCOLTA E VENDITA ---------- */
+  if (k === 'Raccolta' || k === 'Vendita') {
+    const vendita = k === 'Vendita';
+    const quante = Number(mod.quantita || 0);
+    const prezzo = Number(mod.prezzo || 0);
+    $('#pannello-titolo').textContent = vendita
+      ? (nuovo ? 'Nuova vendita' : 'Vendita di uova')
+      : (nuovo ? 'Nuova raccolta' : 'Raccolta di uova');
+    $('#pannello-corpo').innerHTML = `
+      <div class="flex gap-1.5">
+        <button class="bot ${vendita ? 'bot-chiaro' : 'bot-verde'} flex-1" data-tipo-uova="Raccolta">🧺 Raccolta</button>
+        <button class="bot ${vendita ? 'bot-verde' : 'bot-chiaro'} flex-1" data-tipo-uova="Vendita">💶 Vendita</button>
+      </div>
+
+      <div><label class="didascalia" for="m-data-uova">Giorno</label>
+        <input id="m-data-uova" type="date" class="campo mt-1.5" value="${mod.data_uova || OGGI}"></div>
+
+      <div><label class="didascalia" for="m-quantita">Quante uova</label>
+        <div class="flex items-center gap-2 mt-1.5">
+          <button class="bot bot-chiaro" data-uova-meno="1" aria-label="Una in meno">−</button>
+          <input id="m-quantita" type="number" inputmode="numeric" min="1" class="campo flex-1 text-center"
+                 value="${mod.quantita}" placeholder="0">
+          <button class="bot bot-chiaro" data-uova-piu="1" aria-label="Una in più">+</button>
+        </div></div>
+
+      ${!vendita ? '' : `
+      <div><label class="didascalia" for="m-prezzo">Prezzo a uovo</label>
+        <input id="m-prezzo" type="number" inputmode="decimal" step="0.01" min="0"
+               class="campo mt-1.5" value="${mod.prezzo}"></div>
+
+      <div class="scheda flex items-baseline gap-2">
+        <span class="flex-1 font-bold">Incasso</span>
+        <span id="incasso-uova" class="font-black text-lg tabellare">${euro(quante * prezzo) || '0,00 €'}</span>
+      </div>
+
+      <div><label class="didascalia" for="m-cliente">A chi (se vuoi)</label>
+        <input id="m-cliente" type="text" class="campo mt-1.5" value="${pul(mod.cliente || '')}"
+               placeholder="nome di chi compra"></div>`}
+
+      <div><label class="didascalia" for="m-note">Note</label>
+        <textarea id="m-note" rows="2" class="campo mt-1.5">${pul(mod.note || '')}</textarea></div>
+
+      <button class="bot bot-verde bot-largo" data-azione="salva">${nuovo ? '＋ Registra' : '💾 Salva'}</button>
+      ${!nuovo ? '<button class="bot bot-rosso bot-largo" data-azione="elimina-nel-pannello">🗑 Elimina</button>' : ''}`;
+    return;
+  }
+
   /* ---------- CONTATTO ---------- */
   if (k === 'Contatto') {
     $('#pannello-titolo').textContent = 'Nuovo contatto';
@@ -2501,7 +2551,8 @@ async function salva() {
   const bot = $('[data-azione="salva"]');
   const titolo = String(mod.titolo || '').trim();
 
-  if (k !== 'Intervento' && !titolo) { avvisa('Scrivi prima il nome', true); const e = $('#m-titolo'); if (e) e.focus(); return; }
+  const senzaNome = k === 'Intervento' || k === 'Raccolta' || k === 'Vendita';
+  if (!senzaNome && !titolo) { avvisa('Scrivi prima il nome', true); const e = $('#m-titolo'); if (e) e.focus(); return; }
   if (bot) { bot.disabled = true; bot.textContent = 'Salvo…'; }
 
   try {
@@ -2543,6 +2594,29 @@ async function salva() {
       if (mod.prossimo_il) await creaPromemoriaSanitario(animaleAperto, mod.tipo_evento, mod.prossimo_il, mod.descrizione);
       disegna(); avvisa(nuovo ? 'Intervento aggiunto' : 'Modifiche salvate');
       apriAnimale(animaleAperto);            // torno alla carta d'identità aggiornata
+      return;
+    }
+
+    if (k === 'Raccolta' || k === 'Vendita') {
+      const quante = Math.trunc(Number(mod.quantita || 0));
+      if (!(quante > 0)) { avvisa('Scrivi quante uova', true); if (bot) { bot.disabled = false; disegnaPannello(); } return; }
+      const riga = { data: mod.data_uova || OGGI, tipo: k, quantita: quante,
+                     note: (mod.note || '').trim() || null,
+                     prezzo_unitario: null, cliente: null };
+      if (k === 'Vendita') {
+        const prezzo = Number(mod.prezzo);
+        if (!isFinite(prezzo) || prezzo < 0) { avvisa('Prezzo non valido', true); if (bot) { bot.disabled = false; disegnaPannello(); } return; }
+        riga.prezzo_unitario = prezzo;
+        riga.cliente = (mod.cliente || '').trim() || null;
+      }
+      const salvatoUo = nuovo ? await archivio.inserisci('uova', riga)
+                              : await archivio.modifica('uova', idAperto, riga);
+      metti('uova', salvatoUo);
+      annota(nuovo ? 'Aggiunto' : 'Modificato', k, quante + ' uova',
+             k === 'Vendita' ? euro(quante * riga.prezzo_unitario) : null,
+             (salvatoUo && salvatoUo.id) || idAperto);
+      disegna(); chiudiPannello();
+      avvisa(nuovo ? (k === 'Vendita' ? 'Vendita registrata' : 'Raccolta registrata') : 'Modifiche salvate');
       return;
     }
 
@@ -2914,7 +2988,7 @@ function disegnaImpostazioni() {
    EVENTI
    ========================================================================== */
 document.addEventListener('click', (ev) => {
-  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra],[data-scheda],[data-animale-nota],[data-trovato],[data-periodo]');
+  const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra],[data-scheda],[data-animale-nota],[data-trovato],[data-periodo],[data-tipo-uova],[data-uova-meno],[data-uova-piu]');
   if (!el) return;
 
   if (el.dataset.vista) {
@@ -2927,6 +3001,9 @@ document.addEventListener('click', (ev) => {
   if (el.dataset.filtroReg) { filtroReg = el.dataset.filtroReg; disegna(); return; }
   if (el.dataset.scheda)    { schedaStorico = el.dataset.scheda; disegna(); return; }
   if (el.dataset.periodo) { periodoUova = { ...periodoUova, tipo: el.dataset.periodo }; disegna(); return; }
+  if (el.dataset.tipoUova) { leggiCampi(); tipoAperto = el.dataset.tipoUova; disegnaPannello(); return; }
+  if (el.dataset.uovaMeno) { leggiCampi(); mod.quantita = Math.max(0, Number(mod.quantita || 0) - 1); disegnaPannello(); return; }
+  if (el.dataset.uovaPiu)  { leggiCampi(); mod.quantita = Number(mod.quantita || 0) + 1; disegnaPannello(); return; }
   if (el.dataset.trovato)   { apriTrovato(el.dataset.trovato, el.dataset.trovatoId); return; }
   if (el.dataset.io)      { io = el.dataset.io; localStorage.setItem('fattoria_io', io); disegnaImpostazioni(); disegna(); return; }
   if (el.dataset.sono)    { impostaIdentita(el.dataset.sono); return; }
@@ -3150,7 +3227,8 @@ $('#ac-password').addEventListener('keydown', (e) => { if (e.key === 'Enter') en
 $('#ac-email').addEventListener('keydown', (e) => { if (e.key === 'Enter') entra(); });
 
 $('#aggiungi').addEventListener('click', () => {
-  if (vista === 'animali')  apriNuovo('Animale');
+  if (vista === 'uova')          apriNuovo('Raccolta');
+  else if (vista === 'animali')  apriNuovo('Animale');
   else if (vista === 'registro') apriNuovo('Nota');
   else if (vista === 'spesa')    apriNuovo('Spesa');
   else apriNuovo('Lavoro', vista === 'oggi' && calSel !== OGGI ? calSel : '');
@@ -3174,6 +3252,14 @@ document.addEventListener('change', (e) => {
     periodoUova = { ...periodoUova, [e.target.id === 'p-da' ? 'da' : 'a']: e.target.value || OGGI };
     disegnaUova();
   }
+});
+document.addEventListener('input', (ev) => {
+  if (ev.target.id !== 'm-quantita' && ev.target.id !== 'm-prezzo') return;
+  if (tipoAperto !== 'Vendita') return;
+  leggiCampi();
+  const q = Number(mod.quantita || 0), p = Number(mod.prezzo || 0);
+  const cella = $('#incasso-uova');
+  if (cella) cella.textContent = euro(q * p) || '0,00 €';
 });
 
 /* ==========================================================================
