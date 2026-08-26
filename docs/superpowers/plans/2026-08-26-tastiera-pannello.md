@@ -65,7 +65,7 @@ l'iPhone, senza cambiare niente finché la variabile vale zero.
 **File:**
 - Modifica: `index.html` — il meta, la regola `.pannello`, le classi del foglio
 
-- [ ] **Passo 1: dire al telefono cosa fare quando esce la tastiera**
+- [x] **Passo 1: dire al telefono cosa fare quando esce la tastiera**
 
 Sostituire la riga 15:
 
@@ -81,7 +81,7 @@ con:
 
 I browser che non conoscono `interactive-widget` la ignorano senza lamentarsi.
 
-- [ ] **Passo 2: portare `bottom` e `max-height` dentro la regola `.pannello`**
+- [x] **Passo 2: portare `bottom` e `max-height` dentro la regola `.pannello`**
 
 Sostituire:
 
@@ -103,7 +103,7 @@ con:
   }
 ```
 
-- [ ] **Passo 3: togliere dall'elemento le due classi che vincerebbero comunque**
+- [x] **Passo 3: togliere dall'elemento le due classi che vincerebbero comunque**
 
 Le classi Tailwind arrivano da internet e vengono aggiunte alla pagina a lavoro già
 fatto: a parità di peso vince l'ultima scritta, quindi `bottom-0` batterebbe la regola
@@ -121,7 +121,7 @@ con:
   <div class="absolute inset-x-0 flex flex-col pannello rounded-t-3xl overflow-hidden" style="background:var(--sabbia)">
 ```
 
-- [ ] **Passo 4: controllare che non si sia rotto niente**
+- [x] **Passo 4: controllare che non si sia rotto niente**
 
 ```bash
 ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS Code/Code.exe" prove/banco.js
@@ -130,7 +130,7 @@ ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS C
 Atteso: `56 passati, 0 falliti.`
 Il banco non vede il CSS: qui serve solo a dire che il file è ancora sano.
 
-- [ ] **Passo 5: commit e pubblicazione**
+- [x] **Passo 5: commit e pubblicazione**
 
 ```bash
 git status --short
@@ -155,6 +155,10 @@ Se qui va tutto bene, sull'Android il lavoro è finito. Il compito 2 riguarda l'
 
 ## Compito 2 — iPhone, la misura
 
+**Nota del 26/08:** eseguito insieme al compito 1 e pubblicato in un commit solo, per
+chiedere ai telefoni una prova sola invece di due. Le due parti restano distinte:
+se sbaglia Android il sospetto e la riga del compito 1, se sbaglia iPhone la misura.
+
 Safari ignora la riga del compito 1. Qui si misura quanto spazio si è preso la tastiera
 e si riempie la variabile che il foglio già legge.
 
@@ -163,7 +167,7 @@ e si riempie la variabile che il foglio già legge.
   fondo con gli altri ascoltatori globali
 - Prove: `prove/prove-uova.js`, in fondo, **prima** della riga `} finally {`
 
-- [ ] **Passo 1: scrivere le prove, prima del codice**
+- [x] **Passo 1: scrivere le prove, prima del codice**
 
 La formula è staccata dal browser apposta: così si può provare da qui con dei numeri,
 invece di dover avere un telefono in mano. Incollare prima di `} finally {`:
@@ -180,7 +184,7 @@ invece di dover avere un telefono in mano. Incollare prima di `} finally {`:
     controlla('mai un valore negativo', 0, ingombroTastiera(800, 900, 0));
 ```
 
-- [ ] **Passo 2: lanciare le prove e vederle fallire**
+- [x] **Passo 2: lanciare le prove e vederle fallire**
 
 ```bash
 ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS Code/Code.exe" prove/banco.js
@@ -188,7 +192,7 @@ ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS C
 
 Atteso: `ingombroTastiera is not defined`, dopo che le 56 di prima sono passate.
 
-- [ ] **Passo 3: scrivere la formula**
+- [x] **Passo 3: scrivere la formula**
 
 In `index.html`, subito **prima** di `function prezzoProposto()`:
 
@@ -207,7 +211,7 @@ function ingombroTastiera(altezzaPagina, altezzaVisibile, scostamento) {
 }
 ```
 
-- [ ] **Passo 4: rilanciare le prove**
+- [x] **Passo 4: rilanciare le prove**
 
 ```bash
 ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS Code/Code.exe" prove/banco.js
@@ -215,7 +219,7 @@ ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS C
 
 Atteso: `64 passati, 0 falliti.`
 
-- [ ] **Passo 5: agganciare la misura al browser**
+- [x] **Passo 5: agganciare la misura al browser**
 
 In fondo a `index.html`, dopo l'ultimo `document.addEventListener(...)` degli ascoltatori
 globali:
@@ -245,7 +249,7 @@ function seguiTastiera() {
 seguiTastiera();
 ```
 
-- [ ] **Passo 6: ricontrollare**
+- [x] **Passo 6: ricontrollare**
 
 ```bash
 ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS Code/Code.exe" prove/banco.js
@@ -255,7 +259,7 @@ Atteso: `64 passati, 0 falliti.`
 Nel banco `window.visualViewport` non esiste, quindi `seguiTastiera()` esce subito: è la
 prova che sui browser vecchi non fa danni.
 
-- [ ] **Passo 7: commit e pubblicazione**
+- [x] **Passo 7: commit e pubblicazione**
 
 ```bash
 git status --short

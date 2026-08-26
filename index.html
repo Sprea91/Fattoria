@@ -12,7 +12,7 @@
   ============================================================================
 -->
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5, interactive-widget=resizes-content">
 <meta name="theme-color" content="#8FA583">
 <meta name="color-scheme" content="light">
 <meta name="mobile-web-app-capable" content="yes">
@@ -246,7 +246,15 @@
   #annulla-azione { margin-left: .6rem; padding: .25rem .6rem; border-radius: .5rem;
                     background: #FBF7EC; color: #20281A; font-weight: 900; font-size: .8125rem; }
 
-  .pannello { animation: su .22s cubic-bezier(.2,.8,.2,1); }
+  /* Il foglio che sale dal basso. bottom e max-height stanno qui, e non fra le classi
+     scritte sull'elemento, perché devono poter cambiare quando esce la tastiera:
+     --tastiera vale zero finché non ce n'è una. Su Android resta zero anche con la
+     tastiera aperta, perché lì è il sistema a rimpicciolire la pagina. */
+  .pannello {
+    animation: su .22s cubic-bezier(.2,.8,.2,1);
+    bottom: var(--tastiera, 0px);
+    max-height: calc(94vh - var(--tastiera, 0px));
+  }
   @keyframes su { from { transform: translateY(16px); opacity: .5 } to { transform: none; opacity: 1 } }
   [hidden] { display: none !important; }
   .tabellare { font-variant-numeric: tabular-nums; }
@@ -304,7 +312,7 @@
 
 <div id="pannello" hidden class="fixed inset-0 z-50">
   <div id="pannello-sfondo" class="absolute inset-0 bg-black/50"></div>
-  <div class="absolute inset-x-0 bottom-0 max-h-[94vh] flex flex-col pannello rounded-t-3xl overflow-hidden" style="background:var(--sabbia)">
+  <div class="absolute inset-x-0 flex flex-col pannello rounded-t-3xl overflow-hidden" style="background:var(--sabbia)">
     <div class="flex items-center gap-2 px-4 py-3" style="background:var(--salvia)">
       <h2 id="pannello-titolo" class="text-lg font-black min-w-0 truncate" style="color:#14200F">Dettaglio</h2>
       <button id="pannello-chiudi" class="ml-auto w-10 h-10 rounded-xl grid place-items-center text-xl font-black shrink-0" style="background:#ffffff99">✕</button>
@@ -1967,6 +1975,19 @@ function giorniTrascorsi(e) {
   return Math.round((new Date(y2, m2 - 1, g2) - new Date(y1, m1 - 1, g1)) / 86400000) + 1;
 }
 
+// Sotto questa misura non è una tastiera. Su iPhone anche la barra degli indirizzi che
+// compare e sparisce muove gli stessi numeri: senza una soglia, il foglio si alzerebbe e
+// riabbasserebbe da solo mentre si scorre, con nessuna tastiera in giro. Le tastiere
+// vere stanno sopra i 200 pixel anche col telefono coricato.
+const SOGLIA_TASTIERA = 100;
+
+// Quanto spazio si è preso la tastiera, in pixel. Sta staccata dal browser apposta:
+// così si può provare con dei numeri, senza un telefono in mano.
+function ingombroTastiera(altezzaPagina, altezzaVisibile, scostamento) {
+  const spazio = Math.round(altezzaPagina - altezzaVisibile - (scostamento || 0));
+  return spazio >= SOGLIA_TASTIERA ? spazio : 0;
+}
+
 // Il prezzo proposto è quello dell'ultima vendita registrata: sta nel
 // database, quindi è lo stesso sul telefono di tutti.
 function prezzoProposto() {
@@ -3585,6 +3606,29 @@ function riservaIconaEManifest() {
   const l = document.querySelector('link[rel="manifest"]');
   if (l) l.href = 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(man));
 }
+
+/* ==========================================================================
+   LA TASTIERA DEL TELEFONO
+   ========================================================================== */
+// Su Android basta interactive-widget=resizes-content nella dichiarazione della pagina:
+// è il sistema a rimpicciolire lo spazio, e questa misura risulta zero. Safari quella
+// riga la ignora, quindi sull'iPhone la misura serve davvero. Il foglio non sa chi ha
+// riempito --tastiera: legge solo quella.
+function seguiTastiera() {
+  const vv = window.visualViewport;
+  // browser vecchi, e il banco di prova: non si aggancia niente e tutto resta come prima
+  if (!vv) return;
+  const aggiorna = () => {
+    const px = ingombroTastiera(window.innerHeight, vv.height, vv.offsetTop);
+    document.documentElement.style.setProperty('--tastiera', px + 'px');
+  };
+  // con la tastiera aperta la pagina si può ancora spostare: senza "scroll" il foglio
+  // ballerebbe mentre si scorre
+  vv.addEventListener('resize', aggiorna);
+  vv.addEventListener('scroll', aggiorna);
+  aggiorna();
+}
+seguiTastiera();
 
 (async function avvio() {
   fetch('./icona-192.png', { method: 'HEAD' }).then((r) => { if (!r.ok) riservaIconaEManifest(); })

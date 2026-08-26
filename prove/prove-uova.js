@@ -241,6 +241,16 @@
          && pastiglieCliente('').includes('data-valore="Rossi"'));
     controlla('senza suggerimenti la fila e vuota, non un riquadro vuoto',
       '', pastiglieCliente('zzz'));
+
+    /* ---------- quanto spazio si prende la tastiera ---------- */
+    controlla('tastiera aperta: lo spazio che manca', 320, ingombroTastiera(800, 480, 0));
+    controlla('la pagina spostata entra nel conto', 300, ingombroTastiera(800, 480, 20));
+    controlla('tastiera chiusa: zero', 0, ingombroTastiera(800, 800, 0));
+    controlla('la barra degli indirizzi non e una tastiera', 0, ingombroTastiera(800, 740, 0));
+    controlla('proprio sulla soglia conta', 100, ingombroTastiera(800, 700, 0));
+    controlla('un pixel sotto la soglia non conta', 0, ingombroTastiera(800, 701, 0));
+    controlla('i numeri con la virgola si arrotondano', 320, ingombroTastiera(800.4, 480.1, 0));
+    controlla('mai un valore negativo', 0, ingombroTastiera(800, 900, 0));
   } finally {
     uova = veri;
   }
