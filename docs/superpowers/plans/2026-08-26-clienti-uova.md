@@ -15,7 +15,8 @@ pannello di `apriRiepilogoSpese()`, le pastiglie `data-imposta` e l'ascoltatore 
 già presenti.
 
 **Tecnologie:** un unico file `index.html` (HTML + CSS + JavaScript senza librerie),
-dati su Supabase, prove in `prove/prove-uova.js` da incollare nella console del browser.
+dati su Supabase, prove in `prove/prove-uova.js` eseguite da `prove/banco.js` fuori dal
+browser.
 
 **Progetto di riferimento:** `docs/superpowers/specs/2026-08-26-ricerca-clienti-uova-design.md`
 
@@ -23,18 +24,30 @@ dati su Supabase, prove in `prove/prove-uova.js` da incollare nella console del 
 
 ## Come si provano le cose in questo progetto (leggere prima di iniziare)
 
-Questo progetto non ha Node installato e dal PC di lavoro il browser è bloccato dalla
-policy aziendale. Ne discendono tre regole che valgono per **tutti** i compiti:
+**Aggiornato il 26/08 durante il compito 1.** Node non risulta installato, ma dentro
+VS Code ce n'è uno: chiedendo a VS Code di comportarsi da Node
+(`ELECTRON_RUN_AS_NODE=1`) le prove si possono lanciare dal PC di lavoro, senza browser
+e senza installare niente. Da qui il banco di prova, `prove/banco.js`.
 
-1. **Le prove automatiche le lancia Stefano**, incollando `prove/prove-uova.js` nella
-   console del browser con l'app aperta (telefono o PC di casa). I passi che lo
-   richiedono sono marcati **⏸ SERVE STEFANO**.
-2. **Un errore di sintassi rende la pagina completamente bianca** e non se ne accorge
-   nessuno finché l'app non si apre. È già successo, per un apostrofo dentro una
-   stringa fra apici singoli. Regola: **ogni stringa che contiene un apostrofo va fra
-   virgolette doppie**. Prima di ogni commit, rileggere le stringhe aggiunte.
-3. **Un commit per compito.** Se la pagina diventa bianca, si sa subito quale commit
-   guardare.
+1. **Le prove automatiche si lanciano da qui**, con il banco:
+
+   ```bash
+   ELECTRON_RUN_AS_NODE=1 \
+     "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS Code/Code.exe" \
+     prove/banco.js
+   ```
+
+   Stampa una riga per controllo e in fondo il totale; esce con codice 1 se una prova
+   fallisce o se il file ha un errore di sintassi.
+2. **Le prove a occhio le fa Stefano** sull'app vera: colori, tocco, tastiera del
+   telefono. Il banco non vede niente. Questi passi restano marcati
+   **⏸ SERVE STEFANO**.
+3. **Un errore di sintassi rende la pagina completamente bianca.** Adesso lo intercetta
+   il banco, che si ferma indicando riga e messaggio. Resta buona abitudine scrivere
+   **fra virgolette doppie ogni stringa che contiene un apostrofo**: è così che il 25
+   agosto è finita bianca l'app.
+4. **Un commit per compito**, e un push per compito: l'app sui telefoni è servita da
+   GitHub Pages dal ramo `main`, quindi ogni push pubblica.
 
 **Prima di ogni `git commit`, sempre:**
 
@@ -59,6 +72,7 @@ git checkout -- icona-192.png icona-512.png
 |---|---|
 | `index.html` | tutto il codice: la funzione condivisa, la ricerca, la scheda, i suggerimenti |
 | `prove/prove-uova.js` | le prove automatiche della logica, in fondo ai 30 già presenti |
+| `prove/banco.js` | esegue l'app e le prove fuori dal browser (aggiunto durante il compito 1) |
 
 Nessun file nuovo, nessuna modifica al database: il campo `cliente` sulla tabella `uova`
 esiste già.
@@ -92,7 +106,7 @@ lavora: cercare il nome della funzione, non fidarsi del numero):
   `return vendite.length ? Number(vendite[0].prezzo_unitario) : PREZZO_INIZIALE;`)
 - Prove: `prove/prove-uova.js`, in fondo, **prima** della riga `} finally {`
 
-- [ ] **Passo 1: scrivere le prove, prima del codice**
+- [x] **Passo 1: scrivere le prove, prima del codice**
 
 In `prove/prove-uova.js`, subito prima di `} finally {`, incollare:
 
@@ -150,16 +164,16 @@ In `prove/prove-uova.js`, subito prima di `} finally {`, incollare:
 Nota sulle stringhe: i nomi delle prove sono scritti **senza apostrofi** oppure fra
 virgolette doppie. Un apostrofo dentro apici singoli rende bianca l'intera app.
 
-- [ ] **Passo 2: ⏸ SERVE STEFANO — lanciare le prove e vederle fallire**
+- [x] **Passo 2: lanciare le prove e vederle fallire**
 
-Aprire l'app, aprire la console, incollare tutto il contenuto di `prove/prove-uova.js`.
+```bash
+ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS Code/Code.exe" prove/banco.js
+```
 
-Atteso: le prove nuove esplodono con `ReferenceError: clientiUova is not defined`, e
-l'esecuzione si ferma lì. **È il risultato giusto**: dimostra che le prove toccano
-davvero la funzione nuova e non stanno passando per caso. I 30 controlli precedenti
-devono essere già passati prima dell'errore.
+Atteso: i 30 controlli precedenti passano, poi `clientiUova is not defined`.
+**È il risultato giusto**: dimostra che le prove toccano davvero la funzione nuova.
 
-- [ ] **Passo 3: scrivere la funzione**
+- [x] **Passo 3: scrivere la funzione**
 
 In `index.html`, subito dopo la chiusura di `prezzoProposto()`, inserire:
 
@@ -210,15 +224,20 @@ function clientiUova() {
 }
 ```
 
-- [ ] **Passo 4: ⏸ SERVE STEFANO — rilanciare le prove**
+- [x] **Passo 4: rilanciare le prove**
 
-Ricaricare l'app (serve a prendere il codice nuovo), incollare di nuovo il file.
+```bash
+ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS Code/Code.exe" prove/banco.js
+```
 
-Atteso: l'ultima riga stampa `42 passati, 0 falliti.` e `TUTTO A POSTO`.
-Se una prova fallisce, la console stampa atteso e avuto: **non ammorbidire la prova**,
+Atteso: `42 passati, 0 falliti.`
+Se una prova fallisce, il banco stampa atteso e avuto: **non ammorbidire la prova**,
 capire chi ha ragione.
 
-- [ ] **Passo 5: commit**
+Fatto il 26/08, più quattro sabotaggi (normalizzazione, incasso, ordinamento, filtro
+sulle vendite): ognuno accende le prove giuste, quindi non sono verdi per caso.
+
+- [x] **Passo 5: commit**
 
 ```bash
 git status --short
@@ -429,10 +448,14 @@ incollare:
     controlla('a campo vuoto restano tre anche con nove clienti', 3, suggerimentiCliente('').length);
 ```
 
-- [ ] **Passo 2: ⏸ SERVE STEFANO — lanciare le prove e vederle fallire**
+- [ ] **Passo 2: lanciare le prove e vederle fallire**
 
-Atteso: `ReferenceError: suggerimentiCliente is not defined`. I controlli del compito 1
-devono passare prima dell'errore.
+```bash
+ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS Code/Code.exe" prove/banco.js
+```
+
+Atteso: `suggerimentiCliente is not defined`. I controlli del compito 1 devono passare
+prima dell'errore.
 
 - [ ] **Passo 3: scrivere la funzione**
 
@@ -452,9 +475,13 @@ function suggerimentiCliente(scritto) {
 }
 ```
 
-- [ ] **Passo 4: ⏸ SERVE STEFANO — rilanciare le prove**
+- [ ] **Passo 4: rilanciare le prove**
 
-Atteso: `50 passati, 0 falliti.` e `TUTTO A POSTO`.
+```bash
+ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS Code/Code.exe" prove/banco.js
+```
+
+Atteso: `50 passati, 0 falliti.`
 
 - [ ] **Passo 5: scrivere il pezzo che disegna le pastiglie**
 
@@ -555,9 +582,13 @@ Sul telefono di Anna: cercare lo stesso cliente e controllare che il totale sia 
 stesso. È anche l'occasione per chiudere la prova di sincronizzazione rimasta in sospeso
 dal 25 agosto.
 
-- [ ] **Passo 3: ⏸ SERVE STEFANO — l'ultima passata delle prove automatiche**
+- [ ] **Passo 3: l'ultima passata delle prove automatiche**
 
-Incollare `prove/prove-uova.js`: `50 passati, 0 falliti.`
+```bash
+ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS Code/Code.exe" prove/banco.js
+```
+
+Atteso: `50 passati, 0 falliti.`
 
 - [ ] **Passo 4: pubblicare**
 
