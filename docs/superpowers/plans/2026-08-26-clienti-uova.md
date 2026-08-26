@@ -292,7 +292,7 @@ piano non prevedeva perché senza banco non erano eseguibili. Verificano che il 
 compaia, cosa dice la riga e che il tocco porti la chiave normalizzata e non il nome
 scritto. Prove totali: 46. Sabotata la chiave: accende la prova giusta e solo quella.
 
-- [ ] **Passo 3: ⏸ SERVE STEFANO — provare a mano**
+- [x] **Passo 3: ⏸ SERVE STEFANO — provare a mano** — **fatta il 26/08: funziona.**
 
 Con dei dati veri (serve almeno una vendita con un nome scritto):
 
@@ -548,7 +548,7 @@ Si riscrive **solo** la fila delle pastiglie. Chiamare `disegnaPannello()` qui
 ridisegnerebbe tutto il modulo a ogni lettera: il campo perderebbe il fuoco e la
 tastiera del telefono si chiuderebbe da sola.
 
-- [ ] **Passo 8: ⏸ SERVE STEFANO — provare a mano sul telefono**
+- [x] **Passo 8: ⏸ SERVE STEFANO — provare a mano sul telefono** — **fatta il 26/08: funziona.**
 
 1. aprire una nuova vendita: sotto «A chi» compaiono fino a tre nomi recenti
 2. toccarne uno: il nome entra nel campo scritto giusto
@@ -570,6 +570,10 @@ git commit -m "Il nome di chi compra si sceglie, non si riscrive"
 ---
 
 ## Compito 5 — Il giro completo e la pubblicazione
+
+**Nota del 26/08:** questo compito e' confluito nel compito 3 del piano
+`2026-08-26-tastiera-pannello.md`: le prove sono le stesse e si fanno in una volta
+sola. Il codice e' tutto pubblicato; qui resta solo il giro sui telefoni.
 
 - [ ] **Passo 1: ⏸ SERVE STEFANO — il giro dall'inizio alla fine**
 

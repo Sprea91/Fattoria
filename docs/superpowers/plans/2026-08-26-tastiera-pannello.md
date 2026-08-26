@@ -140,7 +140,7 @@ git commit -m "Il foglio fa spazio alla tastiera"
 git push
 ```
 
-- [ ] **Passo 6: ⏸ SERVE STEFANO — la prova sull'Android**
+- [x] **Passo 6: ⏸ SERVE STEFANO — la prova sull'Android** — **fatta il 26/08: funziona.**
 
 1. aprire una nuova vendita e toccare il campo «A chi»
 2. atteso: il pulsante **Registra** e i suggerimenti **restano visibili** sopra la
@@ -269,7 +269,7 @@ git commit -m "Sull'iPhone lo spazio della tastiera si misura"
 git push
 ```
 
-- [ ] **Passo 8: ⏸ SERVE ANNA — la prova sull'iPhone**
+- [ ] **Passo 8: ⏸ SERVE ANNA — la prova sull'iPhone** — in programma la sera del 26/08
 
 Le stesse cinque prove del compito 1, passo 6, ma sull'iPhone.
 
