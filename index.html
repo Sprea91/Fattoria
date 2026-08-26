@@ -1684,6 +1684,16 @@ function cercaTutto(testo) {
     .map((c) => ({ testo: c.nome, sotto: [c.ruolo, c.telefono].filter(Boolean).join(' · '),
       apri: { tipo: 'contatti' } })));
 
+  // Una riga per persona, non una per vendita: la domanda vera è "quanto ha comprato
+  // Rossi", non "elencami le sue venti vendite". Il tocco porta la chiave normalizzata
+  // e non il nome mostrato, perché è l'unica cosa che resta uguale fra una grafia e
+  // l'altra.
+  aggiungi('Uova', '🥚', clientiUova().filter((c) => dentro(c.nome))
+    .map((c) => ({ testo: c.nome,
+      sotto: [numero(c.quantita) + ' uova', euro(c.incasso) || '0,00 €',
+              'ultima ' + c.ultima.split('-').reverse().slice(0, 2).join('/')].join(' · '),
+      apri: { tipo: 'cliente-uova', id: c.chiave } })));
+
   const quanti = gruppi.reduce((s, g) => s + g.voci.length, 0);
   return { gruppi, quanti };
 }
@@ -1694,7 +1704,8 @@ function disegnaRisultati(testo) {
   const r = cercaTutto(testo);
   if (!r) {
     cont.innerHTML = `<p class="scheda text-center font-semibold py-6">
-      Scrivi qualcosa: cerco fra lavori, routine, note, spesa, animali, interventi e contatti.</p>`;
+      Scrivi qualcosa: cerco fra lavori, routine, note, spesa, animali, interventi,
+      contatti e chi compra le uova.</p>`;
     return;
   }
   if (!r.quanti) {

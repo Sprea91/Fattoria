@@ -182,6 +182,24 @@
 
     uova = [];
     controlla('archivio vuoto: nessun cliente e nessun errore', 0, clientiUova().length);
+
+    /* ---------- il gruppo Uova dentro la ricerca ---------- */
+    // Il gruppo si cerca per titolo e non per posizione: nella console del browser
+    // ci sono anche i dati veri, e i gruppi prima di questo cambiano di numero.
+    uova = [
+      { id: '1', data: '2026-08-12', tipo: 'Vendita', quantita: 30, prezzo_unitario: 0.60, cliente: 'Zurloni', creato_il: '2026-08-12T08:00:00Z' }
+    ];
+    const gruppoUova = (testo) =>
+      ((cercaTutto(testo) || {}).gruppi || []).find((g) => g.titolo === 'Uova');
+
+    controlla('cercando il nome compare il gruppo Uova', 1, gruppoUova('zurloni').voci.length);
+    controlla('la voce dice quante uova, quanto e quando',
+      { testo: 'Zurloni', sotto: '30 uova · 18,00 € · ultima 12/08' },
+      { testo: gruppoUova('zurloni').voci[0].testo, sotto: gruppoUova('zurloni').voci[0].sotto });
+    controlla('il tocco porta la chiave normalizzata, non il nome scritto',
+      { tipo: 'cliente-uova', id: 'zurloni' }, gruppoUova('ZURLONI').voci[0].apri);
+    controlla('cercando altro il gruppo Uova non compare',
+      true, gruppoUova('qwertyuiop') === undefined);
   } finally {
     uova = veri;
   }

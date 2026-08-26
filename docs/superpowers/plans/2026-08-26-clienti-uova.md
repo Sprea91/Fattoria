@@ -253,7 +253,7 @@ git commit -m "Chi compra le uova, contato in un posto solo"
 **File:**
 - Modifica: `index.html`, dentro `cercaTutto()` e `disegnaRisultati()`
 
-- [ ] **Passo 1: aggiungere il gruppo alla ricerca**
+- [x] **Passo 1: aggiungere il gruppo alla ricerca**
 
 In `cercaTutto()`, dopo il blocco `aggiungi('Contatti', …)` e **prima** della riga
 `const quanti = gruppi.reduce(…)`, inserire:
@@ -269,7 +269,7 @@ In `cercaTutto()`, dopo il blocco `aggiungi('Contatti', …)` e **prima** della 
 Il tocco porta la **chiave normalizzata**, non il nome mostrato: è l'unica cosa che
 resta uguale fra una grafia e l'altra.
 
-- [ ] **Passo 2: correggere la frase che elenca dove si cerca**
+- [x] **Passo 2: correggere la frase che elenca dove si cerca**
 
 In `disegnaRisultati()`, sostituire la riga:
 
@@ -286,6 +286,11 @@ con:
 
 Senza questa correzione la frase mentirebbe: elencare dove si cerca e non aggiornarlo è
 peggio che non elencarlo affatto.
+
+**Aggiunto in corsa il 26/08:** quattro prove automatiche su `cercaTutto()`, che il
+piano non prevedeva perché senza banco non erano eseguibili. Verificano che il gruppo
+compaia, cosa dice la riga e che il tocco porti la chiave normalizzata e non il nome
+scritto. Prove totali: 46. Sabotata la chiave: accende la prova giusta e solo quella.
 
 - [ ] **Passo 3: ⏸ SERVE STEFANO — provare a mano**
 
@@ -481,7 +486,7 @@ function suggerimentiCliente(scritto) {
 ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS Code/Code.exe" prove/banco.js
 ```
 
-Atteso: `50 passati, 0 falliti.`
+Atteso: `54 passati, 0 falliti.`
 
 - [ ] **Passo 5: scrivere il pezzo che disegna le pastiglie**
 
@@ -588,7 +593,7 @@ dal 25 agosto.
 ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS Code/Code.exe" prove/banco.js
 ```
 
-Atteso: `50 passati, 0 falliti.`
+Atteso: `54 passati, 0 falliti.`
 
 - [ ] **Passo 4: pubblicare**
 
