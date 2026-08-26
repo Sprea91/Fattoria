@@ -1914,6 +1914,51 @@ function prezzoProposto() {
   return vendite.length ? Number(vendite[0].prezzo_unitario) : PREZZO_INIZIALE;
 }
 
+// Quando due vendite sono alla stessa persona: quando il nome coincide ignorando
+// maiuscole, accenti e spazi in più. senzaAccenti() è la stessa funzione che usa la
+// ricerca: una seconda regola scritta a parte prima o poi divergerebbe da questa, e i
+// totali sarebbero sbagliati restando credibili, cioè invisibili.
+function chiaveCliente(nome) {
+  return senzaAccenti(nome).trim().replace(/\s+/g, ' ');
+}
+
+// Chi compra le uova, ricavato dalle vendite. Lo usano la ricerca, la scheda del
+// cliente e i suggerimenti del campo "A chi": devono dire tutti la stessa cosa, quindi
+// il conto si fa qui una volta sola.
+// Restano fuori le raccolte (non hanno un compratore) e le vendite senza nome (non
+// hanno niente da cercare).
+function clientiUova() {
+  // Stesso criterio di prezzoProposto(): prima la data, a parità di data l'ordine di
+  // inserimento. Serve per sapere qual è "l'ultima" vendita.
+  const piuRecentiPrima = (a, b) =>
+    String(b.data).localeCompare(String(a.data))
+    || String(b.creato_il || '').localeCompare(String(a.creato_il || ''));
+
+  const per = new Map();
+  uova
+    .filter((u) => u.tipo === 'Vendita' && chiaveCliente(u.cliente))
+    .sort(piuRecentiPrima)
+    .forEach((u) => {
+      const k = chiaveCliente(u.cliente);
+      // Scorrendo dalla vendita più recente, la prima volta che incontro una persona
+      // sto guardando la sua ultima vendita: da lì prendo la grafia da mostrare e la
+      // data dell'ultima volta. Per lo stesso motivo la Map esce già ordinata come
+      // serve, dal cliente più recente al più vecchio.
+      if (!per.has(k)) {
+        per.set(k, { chiave: k, nome: String(u.cliente).trim(),
+                     quantita: 0, incasso: 0, ultima: u.data, prima: u.data, vendite: [] });
+      }
+      const c = per.get(k);
+      const q = Number(u.quantita || 0);
+      c.quantita += q;
+      // riga per riga, non quantità totale × prezzo medio: il prezzo cambia nel tempo
+      c.incasso += q * Number(u.prezzo_unitario || 0);
+      if (u.data < c.prima) c.prima = u.data;
+      c.vendite.push(u);
+    });
+  return [...per.values()];
+}
+
 // Quante uova risultano in casa: tutte le raccolte meno tutte le vendite, su
 // tutto l'archivio e non sul periodo mostrato, perché il periodo è solo una
 // finestra sui dati. Modificando una vendita, quella riga non conta: altrimenti
