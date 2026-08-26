@@ -321,7 +321,7 @@ git commit -m "Cercando un nome si trova chi compra le uova"
 - Modifica: `index.html` — nuova funzione dopo `apriRiepilogoSpese()`, più un ramo in
   `apriTrovato()`
 
-- [ ] **Passo 1: scrivere la scheda**
+- [x] **Passo 1: scrivere la scheda**
 
 Subito dopo la chiusura di `apriRiepilogoSpese()`, inserire:
 
@@ -375,7 +375,7 @@ Le righe usano `data-uovo`, lo stesso attributo delle righe nella sezione Uova: 
 gestore dei clic (`index.html:3097`) chiama già `apriMovimentoUova()` da solo, non
 serve scrivere niente per il tocco.
 
-- [ ] **Passo 2: collegare il tocco dalla ricerca**
+- [x] **Passo 2: collegare il tocco dalla ricerca**
 
 In `apriTrovato()`, prima della riga `if (tipo === 'contatti')`, inserire:
 

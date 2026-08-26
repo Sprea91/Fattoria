@@ -1602,6 +1602,54 @@ function apriRiepilogoSpese() {
   apriPannello();
 }
 
+// La scheda di chi compra le uova: quanto ha preso in tutto e tutte le sue vendite.
+// Usa il pannello che sale dal basso, lo stesso del riepilogo spese e della scheda
+// animale: l'app ne ha uno solo, ed è il motivo per cui aprendo la correzione di una
+// vendita questa scheda si chiude.
+// Il prezzo a uovo compare riga per riga apposta: è lì che si vede se a qualcuno si sta
+// facendo un prezzo diverso, o come è cambiato nel tempo.
+function apriClienteUova(chiave) {
+  const c = clientiUova().find((x) => x.chiave === chiave);
+  if (!c) return;
+  modo = 'cliente-uova';
+  $('#pannello-titolo').textContent = c.nome;
+
+  const gg = (d) => String(d || '').split('-').reverse().slice(0, 2).join('/');
+  const riga = (u) => {
+    const p = Number(u.prezzo_unitario || 0);
+    // data-uovo è lo stesso attributo delle righe nella sezione Uova: il gestore dei
+    // clic apre già la correzione da solo, qui non serve aggiungere niente.
+    return `<div class="riga tocca" data-uovo="${pul(u.id)}" role="button" tabindex="0">
+        <span class="text-xl shrink-0">💶</span>
+        <div class="flex-1 min-w-0">
+          <p class="font-black">${numero(u.quantita)} uova${p ? ' × ' + pul(euro(p)) : ''}</p>
+          <p class="text-xs font-semibold" style="color:var(--inchiostro2)">${pul(etichettaData(u.data))}</p>
+        </div>
+        <span class="font-black tabellare shrink-0">${pul(euro(Number(u.quantita || 0) * p) || '0,00 €')}</span>
+      </div>`;
+  };
+
+  $('#pannello-corpo').innerHTML = `
+    <div class="scheda text-center">
+      <span class="didascalia">Ha comprato in tutto</span>
+      <p class="text-3xl font-black mt-1">${numero(c.quantita)} uova</p>
+      <p class="text-xl font-black">${pul(euro(c.incasso) || '0,00 €')}</p>
+      <p class="text-xs font-semibold mt-2" style="color:var(--inchiostro2)">
+        ${c.vendite.length} ${c.vendite.length === 1 ? 'vendita' : 'vendite'} ·
+        ${c.prima === c.ultima ? 'il ' + gg(c.prima) : 'dal ' + gg(c.prima) + ' al ' + gg(c.ultima)}</p>
+    </div>
+
+    <section>
+      <h3 class="titolo-sez">🥚 Le sue vendite</h3>
+      <div class="space-y-2.5">${c.vendite.map(riga).join('')}</div>
+    </section>
+
+    <p class="text-xs font-semibold px-1" style="color:var(--inchiostro2)">
+      Toccando una vendita la puoi correggere. La scheda si chiude: l'app ha un pannello
+      solo.</p>`;
+  apriPannello();
+}
+
 function stampaSpese() {
   const c = contiSpese();
   const righe = c.perAnimale.map((a) => `<tr>
@@ -1747,6 +1795,10 @@ function apriTrovato(tipo, id) {
     if (x) { vista = 'animali'; disegna(); apriAnimale(x.animale_id); }
     return;
   }
+  // Prima la sezione Uova, poi la scheda: senza il cambio di vista, chiudendo la
+  // correzione di una vendita si tornerebbe nella sezione da cui è partita la ricerca
+  // (di solito "Oggi"), e la riga corretta resterebbe evidenziata dove non si vede.
+  if (tipo === 'cliente-uova') { vista = 'uova'; disegna(); apriClienteUova(id); return; }
   if (tipo === 'contatti') { apriContatti(); return; }
 }
 
