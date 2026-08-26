@@ -417,7 +417,7 @@ git commit -m "La scheda di chi compra: quanto ha preso e tutte le sue vendite"
   vendita, l'ascoltatore `input`
 - Prove: `prove/prove-uova.js`, in fondo, prima di `} finally {`
 
-- [ ] **Passo 1: scrivere le prove, prima del codice**
+- [x] **Passo 1: scrivere le prove, prima del codice**
 
 In `prove/prove-uova.js`, prima di `} finally {` (dopo le prove del compito 1),
 incollare:
@@ -453,7 +453,7 @@ incollare:
     controlla('a campo vuoto restano tre anche con nove clienti', 3, suggerimentiCliente('').length);
 ```
 
-- [ ] **Passo 2: lanciare le prove e vederle fallire**
+- [x] **Passo 2: lanciare le prove e vederle fallire**
 
 ```bash
 ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS Code/Code.exe" prove/banco.js
@@ -462,7 +462,7 @@ ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS C
 Atteso: `suggerimentiCliente is not defined`. I controlli del compito 1 devono passare
 prima dell'errore.
 
-- [ ] **Passo 3: scrivere la funzione**
+- [x] **Passo 3: scrivere la funzione**
 
 In `index.html`, subito dopo la chiusura di `clientiUova()`:
 
@@ -480,15 +480,15 @@ function suggerimentiCliente(scritto) {
 }
 ```
 
-- [ ] **Passo 4: rilanciare le prove**
+- [x] **Passo 4: rilanciare le prove**
 
 ```bash
 ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS Code/Code.exe" prove/banco.js
 ```
 
-Atteso: `54 passati, 0 falliti.`
+Atteso: `56 passati, 0 falliti.`
 
-- [ ] **Passo 5: scrivere il pezzo che disegna le pastiglie**
+- [x] **Passo 5: scrivere il pezzo che disegna le pastiglie**
 
 Va scritto **prima** di toccare il modulo: se il markup chiamasse una funzione che
 ancora non esiste, fra un passo e l'altro l'app resterebbe rotta.
@@ -507,7 +507,7 @@ function pastiglieCliente(scritto) {
 }
 ```
 
-- [ ] **Passo 6: mettere le pastiglie sotto il campo**
+- [x] **Passo 6: mettere le pastiglie sotto il campo**
 
 Nel modulo vendita, sostituire il blocco del campo cliente:
 
@@ -529,7 +529,7 @@ con:
 `autocomplete="off"` serve a togliere di mezzo il completamento del browser, che
 altrimenti coprirebbe le pastiglie con la sua tendina.
 
-- [ ] **Passo 7: aggiornare le pastiglie mentre si scrive**
+- [x] **Passo 7: aggiornare le pastiglie mentre si scrive**
 
 Nell'ascoltatore `input` (quello che comincia con
 `if (ev.target.id !== 'm-quantita' && ev.target.id !== 'm-prezzo') return;`), sostituire
@@ -593,7 +593,7 @@ dal 25 agosto.
 ELECTRON_RUN_AS_NODE=1 "C:/Users/spreafico/AppData/Local/Programs/Microsoft VS Code/Code.exe" prove/banco.js
 ```
 
-Atteso: `54 passati, 0 falliti.`
+Atteso: `56 passati, 0 falliti.`
 
 - [ ] **Passo 4: pubblicare**
 

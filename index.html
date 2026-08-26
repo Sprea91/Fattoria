@@ -2022,6 +2022,28 @@ function clientiUova() {
   return [...per.values()];
 }
 
+// I nomi da proporre sotto il campo "A chi". A campo vuoto i tre clienti più recenti;
+// scrivendo, quelli che contengono il testo, al massimo sei per non allungare il modulo
+// all'infinito. Il taglio è sempre sui più recenti — clientiUova() li restituisce già in
+// quell'ordine — perché il cliente abituale non deve restare fuori proprio mentre lo si
+// sta cercando.
+function suggerimentiCliente(scritto) {
+  const cercato = chiaveCliente(scritto);
+  const tutti = clientiUova();
+  if (!cercato) return tutti.slice(0, 3).map((c) => c.nome);
+  return tutti.filter((c) => c.chiave.includes(cercato)).slice(0, 6).map((c) => c.nome);
+}
+
+// Le pastiglie dei suggerimenti. data-imposta="cliente" basta a farle funzionare: il
+// gestore dei clic legge i campi, scrive mod.cliente e ridisegna il modulo, lo stesso
+// meccanismo del ruolo nei contatti.
+function pastiglieCliente(scritto) {
+  const nomi = suggerimentiCliente(scritto);
+  // niente da proporre: la fila sparisce invece di lasciare uno spazio vuoto
+  if (!nomi.length) return '';
+  return pastiglie(nomi, String(scritto || '').trim(), 'cliente', '');
+}
+
 // Quante uova risultano in casa: tutte le raccolte meno tutte le vendite, su
 // tutto l'archivio e non sul periodo mostrato, perché il periodo è solo una
 // finestra sui dati. Modificando una vendita, quella riga non conta: altrimenti
@@ -2627,7 +2649,8 @@ function disegnaPannello() {
 
       <div><label class="didascalia" for="m-cliente">A chi (se vuoi)</label>
         <input id="m-cliente" type="text" class="campo mt-1.5" value="${pul(mod.cliente || '')}"
-               placeholder="nome di chi compra"></div>`}
+               placeholder="nome di chi compra" autocomplete="off">
+        <div id="suggerimenti-cliente" class="flex flex-wrap gap-2 mt-1.5">${pastiglieCliente(mod.cliente || '')}</div></div>`}
 
       <div><label class="didascalia" for="m-note">Note</label>
         <textarea id="m-note" rows="2" class="campo mt-1.5">${pul(mod.note || '')}</textarea></div>
@@ -3454,6 +3477,13 @@ document.addEventListener('change', (e) => {
   }
 });
 document.addEventListener('input', (ev) => {
+  // Si riscrive solo la fila delle pastiglie: ridisegnare il pannello a ogni lettera
+  // farebbe perdere il fuoco al campo e chiuderebbe la tastiera del telefono.
+  if (ev.target.id === 'm-cliente') {
+    const fila = $('#suggerimenti-cliente');
+    if (fila) fila.innerHTML = pastiglieCliente(ev.target.value);
+    return;
+  }
   if (ev.target.id !== 'm-quantita' && ev.target.id !== 'm-prezzo') return;
   if (tipoAperto !== 'Vendita') return;
   leggiCampi();

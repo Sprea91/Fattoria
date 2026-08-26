@@ -200,6 +200,47 @@
       { tipo: 'cliente-uova', id: 'zurloni' }, gruppoUova('ZURLONI').voci[0].apri);
     controlla('cercando altro il gruppo Uova non compare',
       true, gruppoUova('qwertyuiop') === undefined);
+
+    /* ---------- i suggerimenti del campo "A chi" ---------- */
+    uova = [
+      { id: '1', data: '2026-08-01', tipo: 'Vendita', quantita: 10, prezzo_unitario: 0.6, cliente: 'Verdi',        creato_il: '2026-08-01T08:00:00Z' },
+      { id: '2', data: '2026-08-02', tipo: 'Vendita', quantita: 10, prezzo_unitario: 0.6, cliente: 'Bar Centrale', creato_il: '2026-08-02T08:00:00Z' },
+      { id: '3', data: '2026-08-03', tipo: 'Vendita', quantita: 10, prezzo_unitario: 0.6, cliente: 'Bianchi',      creato_il: '2026-08-03T08:00:00Z' },
+      { id: '4', data: '2026-08-04', tipo: 'Vendita', quantita: 10, prezzo_unitario: 0.6, cliente: 'Rossi',        creato_il: '2026-08-04T08:00:00Z' }
+    ];
+    controlla('campo vuoto: i tre clienti piu recenti',
+      ['Rossi', 'Bianchi', 'Bar Centrale'], suggerimentiCliente(''));
+    controlla('scrivendo, restano solo quelli che corrispondono',
+      ['Bianchi'], suggerimentiCliente('bian'));
+    controlla('non guarda maiuscole ne accenti',
+      ['Rossi'], suggerimentiCliente('ROS'));
+    controlla('cerca anche in mezzo al nome, non solo all inizio',
+      ['Bar Centrale'], suggerimentiCliente('centr'));
+    controlla('nessuna corrispondenza: nessun suggerimento',
+      [], suggerimentiCliente('zzz'));
+
+    uova = Array.from({ length: 9 }, (_, i) => ({
+      id: String(i + 1), data: '2026-08-0' + (i + 1), tipo: 'Vendita', quantita: 10,
+      prezzo_unitario: 0.6, cliente: 'Cliente ' + (i + 1),
+      creato_il: '2026-08-0' + (i + 1) + 'T08:00:00Z'
+    }));
+    controlla('scrivendo se ne mostrano al massimo sei', 6, suggerimentiCliente('cliente').length);
+    controlla('e sono i sei piu recenti, non i primi che capitano',
+      ['Cliente 9', 'Cliente 8', 'Cliente 7', 'Cliente 6', 'Cliente 5', 'Cliente 4'],
+      suggerimentiCliente('cliente'));
+    controlla('a campo vuoto restano tre anche con nove clienti', 3, suggerimentiCliente('').length);
+
+    // Il tocco sulle pastiglie non ha codice suo: si appoggia a data-imposta, che il
+    // gestore dei clic conosce già. Se quell'attributo cambiasse nome, le pastiglie
+    // resterebbero lì belle da vedere e non farebbero più niente, senza un errore.
+    uova = [
+      { id: '1', data: '2026-08-01', tipo: 'Vendita', quantita: 10, prezzo_unitario: 0.6, cliente: 'Rossi', creato_il: '2026-08-01T08:00:00Z' }
+    ];
+    controlla('la pastiglia porta l attributo che il gestore dei clic conosce',
+      true, pastiglieCliente('').includes('data-imposta="cliente"')
+         && pastiglieCliente('').includes('data-valore="Rossi"'));
+    controlla('senza suggerimenti la fila e vuota, non un riquadro vuoto',
+      '', pastiglieCliente('zzz'));
   } finally {
     uova = veri;
   }
