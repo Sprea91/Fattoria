@@ -1489,7 +1489,11 @@ function disegnaRegistro() {
       <article class="scheda tocca" data-apri="${t.id}" role="button" tabindex="0">
         <div class="flex items-start gap-2">
           <h3 class="flex-1 font-black text-base leading-tight">${pul(t.titolo)}</h3>
-          <span class="etichetta shrink-0">${pul(oraLunga(t.creato_il))}</span>
+          <span class="etichetta shrink-0" style="position:relative">📅 ${pul(giornoLungo(t.creato_il))}
+            <input type="date" data-sposta-nota="${t.id}" aria-label="Cambia la data della nota"
+                   value="${t.creato_il ? isoDi(new Date(t.creato_il)) : ''}"
+                   style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:0;padding:0">
+          </span>
         </div>
         <div class="flex flex-wrap gap-1.5 mt-2">
           ${t.categoria ? `<span class="etichetta">${emojiCat(t.categoria)} ${pul(t.categoria)}</span>` : ''}
@@ -1501,6 +1505,19 @@ function disegnaRegistro() {
     : `<p class="scheda text-center font-bold py-8">Nessuna nota${filtroReg !== 'Tutti' ? ' in "' + filtroReg + '"' : ''}.<br>
         <span class="font-semibold text-sm">Col pulsante ＋ annoti animali e attrezzature, anche con foto.</span></p>`;
   $('#corpo-registro').innerHTML = h;
+}
+
+// Nel Registro la data di una nota si sposta toccandola: il giorno scelto nel
+// calendario diventa il suo creato_il, a mezzogiorno. Il momento in cui la nota
+// è stata scritta davvero resta nel diario.
+async function cambiaDataNota(id, giorno) {
+  const t = attivita.find((x) => x.id === id);
+  if (!t || !giorno || (t.creato_il && giorno === isoDi(new Date(t.creato_il)))) return;
+  try {
+    metti('attivita', await archivio.modifica('attivita', id, { creato_il: mezzogiornoDi(giorno) }));
+    annota('Modificato', 'Nota', t.titolo, 'data spostata al ' + giorno.split('-').reverse().join('/'), id);
+    disegna(); avvisa('Data cambiata');
+  } catch (e) { disegna(); avvisa('Non salvato: ' + (e.message || e), true); }
 }
 
 /* ==========================================================================
@@ -3241,6 +3258,7 @@ function disegnaImpostazioni() {
    EVENTI
    ========================================================================== */
 document.addEventListener('click', (ev) => {
+  if (ev.target.closest('[data-sposta-nota]')) return;   // il calendario della data, non la nota
   const el = ev.target.closest('[data-azione],[data-vista],[data-apri],[data-miei],[data-imposta],[data-io],[data-sono],[data-lente],[data-giorno],[data-animale],[data-intervento],[data-filtro-reg],[data-inquadra],[data-scheda],[data-animale-nota],[data-trovato],[data-periodo],[data-tipo-uova],[data-uova-meno],[data-uova-piu],[data-uovo]');
   if (!el) return;
 
@@ -3502,6 +3520,7 @@ document.addEventListener('keydown', (e) => {
   else if (!$('#pannello').hidden) chiudiPannello();
 });
 document.addEventListener('change', (e) => {
+  if (e.target.dataset && e.target.dataset.spostaNota) { cambiaDataNota(e.target.dataset.spostaNota, e.target.value); return; }
   if (e.target.id === 'm-scadenza') { mod.scadenza = e.target.value; disegnaPannello(); }
   if (e.target.id === 'p-da' || e.target.id === 'p-a') {
     periodoUova = { ...periodoUova, [e.target.id === 'p-da' ? 'da' : 'a']: e.target.value || OGGI };
