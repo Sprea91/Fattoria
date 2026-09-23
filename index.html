@@ -1435,7 +1435,7 @@ function apriAnimale(id) {
           <article class="scheda tocca" data-apri="${t.id}" role="button" tabindex="0">
             <div class="flex items-start gap-2">
               <h4 class="flex-1 font-bold leading-tight">${pul(t.titolo)}</h4>
-              <span class="etichetta shrink-0">${pul(oraLunga(t.creato_il))}</span>
+              <span class="etichetta shrink-0">${pul(giornoLungo(t.creato_il))}</span>
             </div>
             ${t.note ? `<p class="mt-1.5 text-sm font-semibold" style="color:var(--inchiostro2)">${pul(t.note)}</p>` : ''}
             ${tagFoto(t.foto_url)}
@@ -1730,7 +1730,7 @@ function cercaTutto(testo) {
       apri: { tipo: 'attivita', id: t.id } })));
 
   aggiungi('Note del registro', '📓', leNote().filter((t) => dentro(t.titolo, t.note, nomeAnimale(t.animale_id)))
-    .map((t) => ({ testo: t.titolo, sotto: [oraLunga(t.creato_il), nomeAnimale(t.animale_id)].filter(Boolean).join(' · '),
+    .map((t) => ({ testo: t.titolo, sotto: [giornoLungo(t.creato_il), nomeAnimale(t.animale_id)].filter(Boolean).join(' · '),
       apri: { tipo: 'attivita', id: t.id } })));
 
   aggiungi('Spesa', '🛒', laSpesa().filter((t) => dentro(t.titolo))
