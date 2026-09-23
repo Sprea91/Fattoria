@@ -78,7 +78,7 @@ cercare sempre il testo citato, non la riga.
 - Modifica: `index.html` (funzione `oraLunga`, riga ~495)
 - Prove: `prove/prove-uova.js`
 
-- [ ] **Passo 1: scrivere le prove che falliscono**
+- [x] **Passo 1: scrivere le prove che falliscono**
 
 In `prove/prove-uova.js`, subito **prima** della riga `  } finally {`, dopo l'ultima prova
 della tastiera (`controlla('mai un valore negativo', 0, ingombroTastiera(800, 900, 0));`),
@@ -111,13 +111,13 @@ aggiungere:
       12, new Date(mezzogiornoDi('2026-03-10')).getHours());
 ```
 
-- [ ] **Passo 2: lanciare il banco e vederlo fallire**
+- [x] **Passo 2: lanciare il banco e vederlo fallire**
 
 Comando: quello della sezione «Come si provano».
 Atteso: `IL BANCO SI È FERMATO: mezzogiornoDi is not defined` (oppure `giornoLungo is not
 defined`), codice di uscita 1.
 
-- [ ] **Passo 3: scrivere le due funzioni**
+- [x] **Passo 3: scrivere le due funzioni**
 
 In `index.html` sostituire la funzione `oraLunga` attuale:
 
@@ -154,11 +154,11 @@ function mezzogiornoDi(giorno) {
 }
 ```
 
-- [ ] **Passo 4: lanciare il banco e vederlo passare**
+- [x] **Passo 4: lanciare il banco e vederlo passare**
 
 Atteso: **74 passati, 0 falliti.**, codice di uscita 0.
 
-- [ ] **Passo 5: commit**
+- [x] **Passo 5: commit**
 
 ```bash
 git status --short
@@ -172,7 +172,7 @@ git commit -m "Il giorno di una nota, senza l'ora"
 
 **File:** modifica `index.html` in tre punti.
 
-- [ ] **Passo 1: scheda dell'animale**
+- [x] **Passo 1: scheda dell'animale**
 
 Nella scheda dell'animale (sezione `📓 Note su ${pul(a.nome)}`, riga ~1427) sostituire:
 
@@ -191,7 +191,7 @@ spazi di rientro invece di 14). Quella si cambia nel compito 3, non qui: usare u
 testo che comprenda la riga `<h4 class="flex-1 font-bold leading-tight">` subito sopra per
 essere sicuri di prendere quella giusta.
 
-- [ ] **Passo 2: ricerca**
+- [x] **Passo 2: ricerca**
 
 In `aggiungi('Note del registro', …)` (riga ~1722) sostituire:
 
@@ -205,12 +205,12 @@ con:
     .map((t) => ({ testo: t.titolo, sotto: [giornoLungo(t.creato_il), nomeAnimale(t.animale_id)].filter(Boolean).join(' · '),
 ```
 
-- [ ] **Passo 3: banco**
+- [x] **Passo 3: banco**
 
 Atteso: **74 passati, 0 falliti.** (nessuna prova nuova: serve a escludere errori di
 sintassi).
 
-- [ ] **Passo 4: commit**
+- [x] **Passo 4: commit**
 
 ```bash
 git status --short
@@ -224,7 +224,7 @@ git commit -m "Le note nella scheda dell'animale e nella ricerca mostrano solo i
 
 **File:** modifica `index.html` in quattro punti.
 
-- [ ] **Passo 1: l'etichetta con il calendario sopra**
+- [x] **Passo 1: l'etichetta con il calendario sopra**
 
 In `disegnaRegistro()` sostituire:
 
@@ -253,7 +253,7 @@ Perché così:
   secondo che partirebbe dal label, cioè dalla scheda, e aprirebbe la nota;
 - il 📅 fa capire che la data si può toccare.
 
-- [ ] **Passo 2: la funzione che salva**
+- [x] **Passo 2: la funzione che salva**
 
 Subito **dopo** la chiusura di `disegnaRegistro()` (la riga `}` che segue
 `  $('#corpo-registro').innerHTML = h;`) aggiungere:
@@ -274,7 +274,7 @@ async function cambiaDataNota(id, giorno) {
 }
 ```
 
-- [ ] **Passo 3: il clic sul campo data non apre la nota**
+- [x] **Passo 3: il clic sul campo data non apre la nota**
 
 Nel gestore dei clic (`document.addEventListener('click', (ev) => {`, riga ~3232) aggiungere
 una riga **prima** di `const el = ev.target.closest(...)`:
@@ -290,7 +290,7 @@ document.addEventListener('click', (ev) => {
 Il `return` non blocca il calendario: quello lo apre il browser da sé, il gestore evita
 soltanto che il tocco arrivi anche al `data-apri` della scheda.
 
-- [ ] **Passo 4: il giorno scelto arriva alla funzione**
+- [x] **Passo 4: il giorno scelto arriva alla funzione**
 
 Nel gestore dei `change` (`document.addEventListener('change', (e) => {`, riga ~3493)
 aggiungere come **prima** riga dentro la funzione:
@@ -301,11 +301,11 @@ document.addEventListener('change', (e) => {
   if (e.target.id === 'm-scadenza') { mod.scadenza = e.target.value; disegnaPannello(); }
 ```
 
-- [ ] **Passo 5: banco**
+- [x] **Passo 5: banco**
 
 Atteso: **74 passati, 0 falliti.**, codice 0.
 
-- [ ] **Passo 6: controllo a occhio dal PC**
+- [x] **Passo 6: controllo a occhio dal PC**
 
 Aprire `index.html` nel browser del PC (doppio clic sul file). Non è verificato che da file
 l'app si apra e si possa entrare: se ci riesce, andare in Registro, creare una nota di prova,
@@ -313,7 +313,7 @@ toccare la sua data: deve aprirsi il calendario **e non** il modulo della nota. 
 ieri: messaggio «Data cambiata», etichetta «📅 Ieri». Eliminare poi la nota di prova. Se
 dal PC l'app non si apre, saltare questo passo: lo copre il compito 4.
 
-- [ ] **Passo 7: commit**
+- [x] **Passo 7: commit**
 
 ```bash
 git status --short
