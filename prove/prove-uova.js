@@ -251,6 +251,30 @@
     controlla('un pixel sotto la soglia non conta', 0, ingombroTastiera(800, 701, 0));
     controlla('i numeri con la virgola si arrotondano', 320, ingombroTastiera(800.4, 480.1, 0));
     controlla('mai un valore negativo', 0, ingombroTastiera(800, 900, 0));
+
+    /* ---------- la data delle note: solo il giorno ---------- */
+    controlla('nota di oggi: «Oggi», senza ora',
+      'Oggi', giornoLungo(new Date().toISOString()));
+    controlla('nota di ieri: «Ieri», senza ora',
+      'Ieri', giornoLungo(mezzogiornoDi(fraGiorni(-1))));
+    controlla('altra data: giorno della settimana, numero e mese',
+      new Date(2026, 2, 10, 12).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' }),
+      giornoLungo(mezzogiornoDi('2026-03-10')));
+    controlla('altra data: nessun orario dentro',
+      false, giornoLungo(mezzogiornoDi('2026-03-10')).includes(':'));
+    controlla('data mancante: stringa vuota', '', giornoLungo(null));
+    controlla("oraLunga continua a mettere l'ora dopo il giorno",
+      true, /^Oggi · \d\d:\d\d$/.test(oraLunga(new Date().toISOString())));
+
+    /* ---------- il giorno scelto diventa mezzogiorno ---------- */
+    controlla('il giorno scelto torna lo stesso giorno',
+      '2026-03-10', isoDi(new Date(mezzogiornoDi('2026-03-10'))));
+    controlla("il giorno del cambio d'ora non scivola",
+      '2026-03-29', isoDi(new Date(mezzogiornoDi('2026-03-29'))));
+    controlla('ultimo dell anno non passa all anno dopo',
+      '2025-12-31', isoDi(new Date(mezzogiornoDi('2025-12-31'))));
+    controlla('è proprio mezzogiorno ora locale',
+      12, new Date(mezzogiornoDi('2026-03-10')).getHours());
   } finally {
     uova = veri;
   }

@@ -492,12 +492,23 @@ function dataLunga(g) {
   const pre = g === OGGI ? 'Oggi · ' : g === fraGiorni(1) ? 'Domani · ' : g === fraGiorni(-1) ? 'Ieri · ' : '';
   return pre + t.charAt(0).toUpperCase() + t.slice(1);
 }
-function oraLunga(ts) {
+// Il giorno di un istante, detto come lo si direbbe: "Oggi", "Ieri", "mar 22 set".
+// Le note mostrano solo questo: la loro data si può spostare, l'ora no.
+function giornoLungo(ts) {
   if (!ts) return '';
   const d = new Date(ts);
-  const g = isoDi(d) === OGGI ? 'Oggi' : isoDi(d) === fraGiorni(-1) ? 'Ieri'
+  return isoDi(d) === OGGI ? 'Oggi' : isoDi(d) === fraGiorni(-1) ? 'Ieri'
     : d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
-  return `${g} · ${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
+}
+function oraLunga(ts) {
+  if (!ts) return '';
+  return `${giornoLungo(ts)} · ${new Date(ts).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
+}
+// "2026-03-10" -> l'istante di mezzogiorno, ora locale, di quel giorno. A mezzogiorno
+// nessun fuso orario e nessun cambio d'ora può far scivolare la data di un giorno.
+function mezzogiornoDi(giorno) {
+  const [a, m, g] = giorno.split('-').map(Number);
+  return new Date(a, m - 1, g, 12).toISOString();
 }
 // Sposta una data secondo la ricorrenza scelta. Se il giorno non esiste nel
 // mese di arrivo (es. 31 gennaio + 1 mese) si usa l'ultimo giorno del mese.
